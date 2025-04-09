@@ -148,5 +148,5 @@
 
 如有问题或建议，请通过以下方式联系项目维护者：
 
-- 电子邮件：your.email@example.com
-- GitHub Issues: https://github.com/your-username/Flapping-bird-flight-control/issues
+- 电子邮件：1716775457@qq.com
+- GitHub Issues: https://github.com/1716775457damn/Flapping-bird-flight-control/issues
