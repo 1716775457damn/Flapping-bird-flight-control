@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>ESP32 MPU6050 数据可视化</title>
+    <meta charset="UTF-8">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 10px;
+            padding: 10px;
+            max-width: 100%;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .sidebar {
+            background: #2d2d2d;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            overflow-y: auto;
+            max-height: calc(100vh - 20px);
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-rows: 60% 40%;
+            gap: 10px;
+            height: calc(100vh - 20px);
+        }
+
+        .visualization-container {
+            background: #2d2d2d;
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .charts-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            background: #2d2d2d;
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .chart {
+            background: #3d3d3d;
+            border-radius: 6px;
+            height: 100%;
+        }
+
+        #visualization {
+            width: 100%;
+            height: 100%;
+            background: #000;
+            border-radius: 8px;
+        }
+
+        .data-item {
+            background: #3d3d3d;
+            padding: 8px;
+            border-radius: 6px;
+            font-size: 0.9em;
+        }
+
+        .value {
+            font-size: 16px;
+            font-weight: bold;
+            color: #4CAF50;
+            font-family: monospace;
+            margin: 2px 0;
+        }
+
+        .label {
+            color: #aaa;
+            font-size: 12px;
+            margin-bottom: 2px;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 15px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            text-align: center;
+        }
+
+        .connected {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .disconnected {
+            background: #f44336;
+            color: white;
+        }
+
+        .calibration-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: #2d2d2d;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
+
+        .btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+
+        .btn:hover {
+            background: #45a049;
+        }
+
+        .btn:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        .calibration-status {
+            color: #fff;
+            margin-top: 10px;
+            font-size: 12px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            z-index: 2000;
+        }
+
+        .modal-content {
+            position: relative;
+            background-color: #2d2d2d;
+            margin: 15% auto;
+            padding: 20px;
+            width: 80%;
+            max-width: 600px;
+            border-radius: 8px;
+            color: white;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+
+        .modal-text {
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+
+        .modal-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .modal-btn:hover {
+            background: #45a049;
+        }
+
+        .calibration-steps {
+            margin-top: 10px;
+            padding: 5px;
+            border: 1px solid #555;
+            border-radius: 4px;
+        }
+
+        .step {
+            padding: 8px;
+            margin: 4px 0;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .step.active {
+            background: #4CAF50;
+        }
+
+        .step.completed {
+            background: #45a049;
+            opacity: 0.7;
+        }
+
+        .axis-indicator {
+            display: inline-flex;
+            gap: 5px;
+        }
+
+        .axis {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+
+        .axis.highlight {
+            background: #ffeb3b;
+            color: #000;
+        }
+
+        .arrow {
+            font-size: 20px;
+            margin: 0 5px;
+        }
+
+        .stability-indicator {
+            margin-top: 10px;
+            padding: 5px;
+            border-radius: 3px;
+            text-align: center;
+            display: none;
+        }
+
+        .stability-indicator.stable {
+            background: #4CAF50;
+            display: block;
+        }
+
+        .stability-indicator.unstable {
+            background: #f44336;
+            display: block;
+        }
+
+        .calibration-guide {
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .guide-image {
+            width: 200px;
+            height: 200px;
+            margin: 10px auto;
+            position: relative;
+            border: 2px solid #555;
+            border-radius: 8px;
+        }
+
+        .guide-arrow {
+            position: absolute;
+            font-size: 24px;
+            color: #ffeb3b;
+            font-weight: bold;
+        }
+
+        .guide-text {
+            margin-top: 10px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .guide-model-container {
+            width: 200px;
+            height: 200px;
+            margin: 10px auto;
+            position: relative;
+            border: 2px solid #555;
+            border-radius: 8px;
+            background: #000;
+        }
+
+        .angle-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #fff;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="calibrationModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-title">姿态校准</div>
+            <div class="modal-text" id="modalText">请按照提示完成校准步骤</div>
+            <button class="modal-btn" id="modalBtn">确定</button>
+        </div>
+    </div>
+
+    <div class="calibration-panel">
+        <button id="startCalibration" class="btn">开始校准</button>
+        <button id="resetOrientation" class="btn">重置姿态</button>
+        <div class="calibration-status" id="calibrationStatus"></div>
+        <div class="calibration-steps" id="calibrationSteps">
+            <div class="step" data-step="1">1. 水平放置（正面朝上）</div>
+            <div class="step" data-step="2">2. 垂直放置（正面朝Y轴）</div>
+            <div class="step" data-step="3">3. 侧放（正面朝X轴）</div>
+            <div class="step" data-step="4">4. 旋转（正面朝下）</div>
+        </div>
+    </div>
+    <div class="container">
+        <div class="sidebar">
+            <div style="text-align: center;">
+                <div id="connection-status" class="status disconnected">未连接</div>
+            </div>
+            <div class="data-item">
+                <div class="label">线性加速度</div>
+                <div id="linear-accel-x" class="value">0.00 m/s²</div>
+                <div id="linear-accel-y" class="value">0.00 m/s²</div>
+                <div id="linear-accel-z" class="value">0.00 m/s²</div>
+            </div>
+            <div class="data-item">
+                <div class="label">角速度</div>
+                <div id="gyro-x" class="value">0.00 °/s</div>
+                <div id="gyro-y" class="value">0.00 °/s</div>
+                <div id="gyro-z" class="value">0.00 °/s</div>
+            </div>
+            <div class="data-item">
+                <div class="label">姿态角</div>
+                <div id="orientation-x" class="value">0.00°</div>
+                <div id="orientation-y" class="value">0.00°</div>
+                <div id="orientation-z" class="value">0.00°</div>
+            </div>
+        </div>
+        <div class="main-content">
+            <div class="visualization-container">
+                <div id="visualization"></div>
+            </div>
+            <div class="charts-container">
+                <div class="chart" id="accel-chart"></div>
+                <div class="chart" id="gyro-chart"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 添加全局变量
+        let scene, camera, renderer, cube, controls;
+        let pathGeometry, pathLine, pathMaterial;
+        const pathPoints = [];
+        const MAX_PATH_POINTS = 1000;
+
+        // 添加平滑参数
+        const ROTATION_SMOOTHING = 0.2;
+        const POSITION_SMOOTHING = 0.2;
+        const POSITION_SCALE = 20;
+        const MIN_MOVEMENT = 0.001;
+
+        // 添加轨迹相关配置
+        const pathConfig = {
+            maxPoints: 500,        // 减少最大点数以提高性能
+            smoothing: 20,         // 减少平滑点数以提高性能
+            minDistance: 0.05,     // 增加最小距离阈值，减少点数
+            color: 0x00ff00,      // 轨迹颜色
+            width: 2,             // 轨迹线宽
+            opacity: 0.8,         // 轨迹透明度
+            fadeOut: true,        // 启用轨迹渐隐
+            fadeSpeed: 0.995      // 渐隐速度
+        };
+
+        // 数据缓冲
+        const dataBuffer = {
+            time: [],
+            accel: { x: [], y: [], z: [] },
+            gyro: { x: [], y: [], z: [] }
+        };
+        const BUFFER_SIZE = 100;
+
+        // 修改服务器配置
+        const serverConfig = {
+            host: window.location.hostname || 'localhost',  // 动态获取当前主机名
+            port: window.location.port || 5000,            // 使用当前端口或默认5000
+            maxRetries: 3,                                 // 最大重试次数
+            retryDelay: 2000,                             // 重试延迟（毫秒）
+            debug: true                                    // 启用调试日志
+        };
+
+        let retryCount = 0;
+
+        // 修改校准相关变量
+        let calibrationOffset = {
+            horizontal: { x: 0, y: 0, z: 0 },
+            vertical: { x: 0, y: 0, z: 0 },
+            side: { x: 0, y: 0, z: 0 },
+            rotate: { x: 0, y: 0, z: 0 },
+            initial: { x: 0, y: 0, z: 0 }
+        };
+        let isCalibrating = false;
+        let calibrationStep = 0;
+        const CALIBRATION_SAMPLES = 30;
+        let calibrationData = {
+            x: [], y: [], z: [],
+            gx: [], gy: [], gz: []
+        };
+
+        // 在全局变量区域添加
+        let isCollecting = false;  // 控制数据采集的标志
+
+        function initVisualization() {
+            // 初始化场景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+
+            // 初始化相机
+            camera = new THREE.PerspectiveCamera(
+                75,
+                document.getElementById('visualization').clientWidth / 400,
+                0.1,
+                1000
+            );
+            camera.position.set(30, 30, 30);
+            camera.lookAt(0, 0, 0);
+
+            // 初始化渲染器
+            renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                alpha: true
+            });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(
+                document.getElementById('visualization').clientWidth,
+                400
+            );
+            document.getElementById('visualization').appendChild(renderer.domElement);
+
+            // 初始化控制器
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.rotateSpeed = 0.8;
+            controls.zoomSpeed = 1.2;
+
+            // 添加网格和坐标轴
+            const gridHelper = new THREE.GridHelper(20, 20, 0x404040, 0x404040);
+            scene.add(gridHelper);
+
+            const axesHelper = new THREE.AxesHelper(10);
+            scene.add(axesHelper);
+
+            // 创建设备模型
+            const geometry = new THREE.BoxGeometry(2, 0.5, 1);
+            const materials = [
+                new THREE.MeshPhongMaterial({ color: 0xff4444, shininess: 100 }), // 右
+                new THREE.MeshPhongMaterial({ color: 0xff4444, shininess: 100 }), // 左
+                new THREE.MeshPhongMaterial({ color: 0x44ff44, shininess: 100 }), // 上
+                new THREE.MeshPhongMaterial({ color: 0x44ff44, shininess: 100 }), // 下
+                new THREE.MeshPhongMaterial({ color: 0x4444ff, shininess: 100 }), // 前
+                new THREE.MeshPhongMaterial({ color: 0x4444ff, shininess: 100 })  // 后
+            ];
+            cube = new THREE.Mesh(geometry, materials);
+            scene.add(cube);
+
+            // 初始化轨迹线
+            pathGeometry = new THREE.BufferGeometry();
+            pathMaterial = new THREE.LineBasicMaterial({
+                color: pathConfig.color,
+                linewidth: pathConfig.width,
+                transparent: true,
+                opacity: pathConfig.opacity,
+                depthTest: false
+            });
+            pathLine = new THREE.Line(pathGeometry, pathMaterial);
+            pathLine.frustumCulled = false;
+            scene.add(pathLine);
+
+            // 添加光照
+            const ambientLight = new THREE.AmbientLight(0x404040, 1);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 5, 5);
+            scene.add(directionalLight);
+
+            // 开始动画循环
+            animate();
+        }
+
+        // 初始化图表
+        function initCharts() {
+            const accelLayout = {
+                title: '线性加速度',
+                paper_bgcolor: '#3d3d3d',
+                plot_bgcolor: '#3d3d3d',
+                font: { color: '#ffffff' },
+                xaxis: { title: '时间 (s)', gridcolor: '#666666' },
+                yaxis: { title: '加速度 (m/s²)', gridcolor: '#666666' },
+                showlegend: true,
+                legend: { font: { color: '#ffffff' } }
+            };
+
+            const gyroLayout = {
+                title: '角速度',
+                paper_bgcolor: '#3d3d3d',
+                plot_bgcolor: '#3d3d3d',
+                font: { color: '#ffffff' },
+                xaxis: { title: '时间 (s)', gridcolor: '#666666' },
+                yaxis: { title: '角速度 (°/s)', gridcolor: '#666666' },
+                showlegend: true,
+                legend: { font: { color: '#ffffff' } }
+            };
+
+            Plotly.newPlot('accel-chart', [{
+                name: 'X轴',
+                x: [],
+                y: [],
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#ff0000' }
+            }, {
+                name: 'Y轴',
+                x: [],
+                y: [],
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#00ff00' }
+            }, {
+                name: 'Z轴',
+                x: [],
+                y: [],
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#0000ff' }
+            }], accelLayout);
+
+            Plotly.newPlot('gyro-chart', [{
+                name: 'X轴',
+                x: [],
+                y: [],
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#ff0000' }
+            }, {
+                name: 'Y轴',
+                x: [],
+                y: [],
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#00ff00' }
+            }, {
+                name: 'Z轴',
+                x: [],
+                y: [],
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#0000ff' }
+            }], gyroLayout);
+        }
+
+        function updateCharts(data) {
+            const time = Date.now() / 1000;
+
+            // 更新数据缓冲
+            dataBuffer.time.push(time);
+            dataBuffer.accel.x.push(data.acceleration.x);
+            dataBuffer.accel.y.push(data.acceleration.y);
+            dataBuffer.accel.z.push(data.acceleration.z);
+            dataBuffer.gyro.x.push(data.gyro.x);
+            dataBuffer.gyro.y.push(data.gyro.y);
+            dataBuffer.gyro.z.push(data.gyro.z);
+
+            // 限制缓冲区大小
+            if (dataBuffer.time.length > BUFFER_SIZE) {
+                dataBuffer.time.shift();
+                dataBuffer.accel.x.shift();
+                dataBuffer.accel.y.shift();
+                dataBuffer.accel.z.shift();
+                dataBuffer.gyro.x.shift();
+                dataBuffer.gyro.y.shift();
+                dataBuffer.gyro.z.shift();
+            }
+
+            // 更新图表
+            Plotly.update('accel-chart', {
+                x: [dataBuffer.time, dataBuffer.time, dataBuffer.time],
+                y: [dataBuffer.accel.x, dataBuffer.accel.y, dataBuffer.accel.z]
+            });
+
+            Plotly.update('gyro-chart', {
+                x: [dataBuffer.time, dataBuffer.time, dataBuffer.time],
+                y: [dataBuffer.gyro.x, dataBuffer.gyro.y, dataBuffer.gyro.z]
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (controls) controls.update();
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+        }
+
+        function updateDisplayValues(data) {
+            try {
+                // 存储最后处理的数据
+                lastProcessedData = data;
+
+                // 检查数据有效性
+                if (!data || !data.acceleration || !data.orientation) {
+                    console.warn('Invalid data received:', data);
+                    return;
+                }
+
+                // 更新加速度显示
+                document.getElementById('linear-accel-x').textContent = `${data.acceleration.x.toFixed(3)} m/s²`;
+                document.getElementById('linear-accel-y').textContent = `${data.acceleration.y.toFixed(3)} m/s²`;
+                document.getElementById('linear-accel-z').textContent = `${data.acceleration.z.toFixed(3)} m/s²`;
+
+                // 如果在校准过程中，处理校准数据
+                if (isCalibrating && isCollecting) {
+                    console.log('Processing calibration data in updateDisplayValues');
+                    processCalibrationData({
+                        orientation: {
+                            x: data.orientation.x,
+                            y: data.orientation.y,
+                            z: data.orientation.z
+                        }
+                    });
+                } else {
+                    // 正常更新3D可视化
+                    updateVisualization(data);
+                }
+
+                // 更新图表
+                if (data.acceleration) {
+                    updateCharts(data);
+                }
+            } catch (error) {
+                console.error('Error updating display values:', error);
+            }
+        }
+
+        function updateVisualization(data) {
+            try {
+                if (!cube || !scene || !camera || !renderer) {
+                    console.warn('3D objects not initialized');
+                    return;
+                }
+
+                if (!data || !data.orientation) {
+                    console.warn('Invalid orientation data:', data);
+                    return;
+                }
+
+                // 处理校准数据
+                if (isCalibrating) {
+                    processCalibrationData(data);
+                    return;
+                }
+
+                // 应用校准偏移
+                const calibratedOrientation = {
+                    x: data.orientation.x - (calibrationOffset.final?.x || 0),
+                    y: data.orientation.y - (calibrationOffset.final?.y || 0),
+                    z: data.orientation.z - (calibrationOffset.final?.z || 0)
+                };
+
+                // 限制角度范围在 -180 到 180 之间
+                calibratedOrientation.x = ((calibratedOrientation.x + 180) % 360) - 180;
+                calibratedOrientation.y = ((calibratedOrientation.y + 180) % 360) - 180;
+                calibratedOrientation.z = ((calibratedOrientation.z + 180) % 360) - 180;
+
+                // 更新3D模型旋转
+                cube.rotation.x = THREE.MathUtils.degToRad(calibratedOrientation.x);
+                cube.rotation.y = THREE.MathUtils.degToRad(calibratedOrientation.y);
+                cube.rotation.z = THREE.MathUtils.degToRad(calibratedOrientation.z);
+
+                // 渲染场景
+                renderer.render(scene, camera);
+
+                // 更新姿态角显示
+                const orientationX = document.getElementById('orientation-x');
+                const orientationY = document.getElementById('orientation-y');
+                const orientationZ = document.getElementById('orientation-z');
+
+                if (orientationX && orientationY && orientationZ) {
+                    orientationX.textContent = `${calibratedOrientation.x.toFixed(2)}°`;
+                    orientationY.textContent = `${calibratedOrientation.y.toFixed(2)}°`;
+                    orientationZ.textContent = `${calibratedOrientation.z.toFixed(2)}°`;
+                }
+            } catch (error) {
+                console.error('Error updating visualization:', error);
+            }
+        }
+
+        function startDataFetching() {
+            console.log('Starting data fetching...');
+            return setInterval(() => {
+                fetch('/gyro')
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (serverConfig.debug) {
+                            console.log('Received data:', data);
+                        }
+
+                        // 更新连接状态
+                        const statusElement = document.getElementById('connection-status');
+                        if (data && data.connection_status) {
+                            statusElement.textContent = 'ESP32已连接';
+                            statusElement.style.color = '#4CAF50';
+                            statusElement.className = 'status connected';
+
+                            // 确保数据格式正确
+                            if (data.acceleration && data.orientation) {
+                                // 更新所有显示数据
+                                updateDisplayValues(data);
+                            } else {
+                                console.warn('数据格式不完整:', data);
+                            }
+                        } else {
+                            statusElement.textContent = 'ESP32未连接';
+                            statusElement.style.color = '#f44336';
+                            statusElement.className = 'status disconnected';
+                            console.warn('ESP32未连接或数据无效:', data);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching data:', error);
+                        const statusElement = document.getElementById('connection-status');
+                        if (statusElement) {
+                            statusElement.textContent = 'ESP32未连接';
+                            statusElement.style.color = '#f44336';
+                            statusElement.className = 'status disconnected';
+                        }
+                    });
+            }, 100);  // 每100ms更新一次
+        }
+
+        // 校准按钮事件处理
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Starting visualization...');
+            initVisualization();
+            initCharts();
+
+            // 绑定校准按钮事件
+            const startCalibrationBtn = document.getElementById('startCalibration');
+            const resetOrientationBtn = document.getElementById('resetOrientation');
+
+            if (startCalibrationBtn) {
+                startCalibrationBtn.addEventListener('click', () => {
+                    console.log('Starting calibration...');
+                    startCalibration();
+                });
+            }
+
+            if (resetOrientationBtn) {
+                resetOrientationBtn.addEventListener('click', () => {
+                    console.log('Resetting orientation...');
+                    resetOrientation();
+                });
+            }
+
+            // 启动数据获取
+            const dataInterval = startDataFetching();
+
+            // 添加页面卸载时的清理
+            window.addEventListener('beforeunload', () => {
+                if (dataInterval) {
+                    clearInterval(dataInterval);
+                }
+            });
+        });
+
+        function startCalibration() {
+            console.log('Initializing calibration...');
+            isCalibrating = true;
+            calibrationStep = 1;
+            calibrationData = {
+                x: [], y: [], z: []
+            };
+
+            // 记录开始校准时的姿态作为基准
+            if (lastProcessedData && lastProcessedData.orientation) {
+                calibrationOffset.initial = {
+                    x: lastProcessedData.orientation.x,
+                    y: lastProcessedData.orientation.y,
+                    z: lastProcessedData.orientation.z
+                };
+                console.log('Initial orientation set:', calibrationOffset.initial);
+            } else {
+                calibrationOffset.initial = { x: 0, y: 0, z: 0 };
+                console.warn('No initial orientation data available');
+            }
+
+            // 禁用开始校准按钮
+            const startCalibrationBtn = document.getElementById('startCalibration');
+            if (startCalibrationBtn) {
+                startCalibrationBtn.disabled = true;
+            }
+
+            // 更新校准步骤显示
+            updateCalibrationSteps(1);
+            // 显示第一步校准指南
+            showCalibrationGuide(1);
+        }
+
+        function resetOrientation() {
+            console.log('Resetting orientation...');
+
+            // 重置3D模型的旋转
+            if (cube) {
+                cube.rotation.set(0, 0, 0);
+                renderer.render(scene, camera);
+            }
+
+            // 重置偏移量
+            calibrationOffset = {
+                horizontal: { x: 0, y: 0, z: 0 },
+                vertical: { x: 0, y: 0, z: 0 },
+                side: { x: 0, y: 0, z: 0 },
+                rotate: { x: 0, y: 0, z: 0 },
+                initial: { x: 0, y: 0, z: 0 },
+                final: { x: 0, y: 0, z: 0 }
+            };
+
+            // 更新状态显示
+            const statusElement = document.getElementById('calibrationStatus');
+            if (statusElement) {
+                statusElement.textContent = '姿态已重置';
+            }
+        }
+
+        function updateCalibrationSteps(currentStep) {
+            const steps = document.querySelectorAll('.step');
+            steps.forEach(step => {
+                const stepNum = parseInt(step.dataset.step);
+                step.classList.remove('active', 'completed');
+                if (stepNum < currentStep) {
+                    step.classList.add('completed');
+                } else if (stepNum === currentStep) {
+                    step.classList.add('active');
+                }
+            });
+        }
+
+        function showModal(title, text, btnText = "确定", callback = null) {
+            const modal = document.getElementById('calibrationModal');
+            const modalTitle = modal.querySelector('.modal-title');
+            const modalText = modal.querySelector('#modalText');
+            const modalBtn = modal.querySelector('#modalBtn');
+
+            if (modalTitle) modalTitle.textContent = title;
+            if (modalText) modalText.textContent = text;
+            if (modalBtn) {
+                modalBtn.textContent = btnText;
+                modalBtn.onclick = () => {
+                    modal.style.display = "none";
+                    if (callback) callback();
+                };
+            }
+
+            modal.style.display = "block";
+        }
+
+        // 处理窗口大小改变
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            if (resizeTimeout) {
+                clearTimeout(resizeTimeout);
+            }
+            resizeTimeout = setTimeout(() => {
+                if (renderer && camera) {
+                    const width = document.getElementById('visualization').clientWidth;
+                    const height = 400;
+
+                    camera.aspect = width / height;
+                    camera.updateProjectionMatrix();
+
+                    renderer.setSize(width, height);
+                }
+            }, 100);
+        });
+
+        function createCalibrationGuideModel() {
+            const container = document.createElement('div');
+            container.className = 'guide-model-container';
+
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+
+            const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+            camera.position.set(3, 3, 3);
+            camera.lookAt(0, 0, 0);
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(200, 200);
+            container.appendChild(renderer.domElement);
+
+            // 创建目标设备模型（半透明绿色）
+            const targetGeometry = new THREE.BoxGeometry(2, 0.5, 1);
+            const targetMaterial = new THREE.MeshPhongMaterial({
+                color: 0x00ff00,
+                transparent: true,
+                opacity: 0.5
+            });
+            const targetDevice = new THREE.Mesh(targetGeometry, targetMaterial);
+            scene.add(targetDevice);
+
+            // 创建当前设备模型（红色）
+            const currentGeometry = new THREE.BoxGeometry(2, 0.5, 1);
+            const currentMaterial = new THREE.MeshPhongMaterial({
+                color: 0xff0000
+            });
+            const currentDevice = new THREE.Mesh(currentGeometry, currentMaterial);
+            scene.add(currentDevice);
+
+            // 添加坐标轴
+            const axesHelper = new THREE.AxesHelper(2);
+            scene.add(axesHelper);
+
+            // 添加光照
+            const ambientLight = new THREE.AmbientLight(0x404040);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 5, 5);
+            scene.add(directionalLight);
+
+            // 添加轨道控制器
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 3;
+            controls.maxDistance = 8;
+            controls.maxPolarAngle = Math.PI;
+
+            // 创建角度指示器
+            const angleIndicator = document.createElement('div');
+            angleIndicator.className = 'angle-indicator';
+            container.appendChild(angleIndicator);
+
+            let animationFrameId = null;
+            let isDestroyed = false;
+
+            function animate() {
+                if (isDestroyed) return;
+                animationFrameId = requestAnimationFrame(animate);
+                controls.update();
+                renderer.render(scene, camera);
+            }
+
+            // 启动动画循环
+            animate();
+
+            function updateGuideModel(currentOrientation, targetOrientation) {
+                if (isDestroyed) return;
+
+                // 计算相对于初始姿态的差异
+                const initial = calibrationOffset.initial || { x: 0, y: 0, z: 0 };
+                const relativeOrientation = {
+                    x: currentOrientation.x - initial.x,
+                    y: currentOrientation.y - initial.y,
+                    z: currentOrientation.z - initial.z
+                };
+
+                // 更新当前设备模型的旋转
+                currentDevice.rotation.set(
+                    THREE.MathUtils.degToRad(relativeOrientation.x),
+                    THREE.MathUtils.degToRad(relativeOrientation.y),
+                    THREE.MathUtils.degToRad(relativeOrientation.z)
+                );
+
+                // 计算目标姿态相对于初始姿态的差异
+                const targetRelative = {
+                    x: targetOrientation.x - initial.x,
+                    y: targetOrientation.y - initial.y,
+                    z: targetOrientation.z - initial.z
+                };
+
+                // 更新目标设备模型的旋转
+                targetDevice.rotation.set(
+                    THREE.MathUtils.degToRad(targetRelative.x),
+                    THREE.MathUtils.degToRad(targetRelative.y),
+                    THREE.MathUtils.degToRad(targetRelative.z)
+                );
+
+                // 计算角度差异（相对于目标姿态）
+                const diffX = Math.abs(relativeOrientation.x - targetRelative.x);
+                const diffY = Math.abs(relativeOrientation.y - targetRelative.y);
+                const diffZ = Math.abs(relativeOrientation.z - targetRelative.z);
+
+                // 更新角度指示器
+                angleIndicator.textContent = `差异: X: ${diffX.toFixed(1)}° Y: ${diffY.toFixed(1)}° Z: ${diffZ.toFixed(1)}°`;
+
+                renderer.render(scene, camera);
+            }
+
+            function destroy() {
+                isDestroyed = true;
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                }
+                controls.dispose();
+                renderer.dispose();
+            }
+
+            return {
+                container,
+                updateGuideModel,
+                destroy
+            };
+        }
+
+        function getTargetOrientation(step) {
+            // 基于初始姿态计算目标姿态
+            const initial = calibrationOffset.initial || { x: 0, y: 0, z: 0 };
+
+            switch (step) {
+                case 1: // 当前姿态
+                    return { ...initial };
+                case 2: // 垂直放置（相对于初始姿态旋转90度）
+                    return {
+                        x: initial.x,
+                        y: initial.y + 90,
+                        z: initial.z
+                    };
+                case 3: // 侧放（相对于初始姿态旋转90度）
+                    return {
+                        x: initial.x + 90,
+                        y: initial.y,
+                        z: initial.z
+                    };
+                case 4: // 旋转180度（相对于初始姿态）
+                    return {
+                        x: initial.x,
+                        y: initial.y,
+                        z: initial.z + 180
+                    };
+                default:
+                    return { ...initial };
+            }
+        }
+
+        function showCalibrationGuide(step) {
+            console.log('Showing calibration guide for step:', step);
+            const modal = document.getElementById('calibrationModal');
+            const modalContent = modal.querySelector('.modal-content');
+            const modalText = document.getElementById('modalText');
+            const modalBtn = document.getElementById('modalBtn');
+
+            // 清空现有内容
+            modalContent.innerHTML = '';
+
+            // 创建新的标题
+            const title = document.createElement('div');
+            title.className = 'modal-title';
+            title.textContent = '姿态校准';
+            modalContent.appendChild(title);
+
+            // 创建指南内容
+            const guideContent = document.createElement('div');
+            guideContent.className = 'modal-text';
+            modalContent.appendChild(guideContent);
+
+            // 创建3D引导模型
+            const guideModel = createCalibrationGuideModel();
+            modalContent.appendChild(guideModel.container);
+
+            // 创建稳定性指示器
+            const stabilityIndicator = document.createElement('div');
+            stabilityIndicator.className = 'stability-indicator';
+            stabilityIndicator.textContent = '设备不稳定，请保持静止';
+            modalContent.appendChild(stabilityIndicator);
+
+            // 创建新的按钮
+            const newBtn = document.createElement('button');
+            newBtn.className = 'modal-btn';
+            newBtn.textContent = '开始采集';
+            newBtn.disabled = false;  // 按钮直接可用
+            modalContent.appendChild(newBtn);
+
+            // 获取目标姿态
+            const targetOrientation = getTargetOrientation(step);
+
+            // 更新引导文本
+            let stepText = '';
+            switch (step) {
+                case 1:
+                    stepText = '请将设备水平放置，正面朝上，点击"开始采集"';
+                    break;
+                case 2:
+                    stepText = '请将设备垂直放置，正面朝Y轴，点击"开始采集"';
+                    break;
+                case 3:
+                    stepText = '请将设备侧放，正面朝X轴，点击"开始采集"';
+                    break;
+                case 4:
+                    stepText = '请将设备旋转180度，正面朝下，点击"开始采集"';
+                    break;
+            }
+            guideContent.textContent = stepText;
+
+            // 设置按钮点击事件
+            newBtn.onclick = () => {
+                console.log('Start collecting button clicked');
+                // 销毁3D模型
+                if (guideModel && guideModel.destroy) {
+                    guideModel.destroy();
+                }
+                // 隐藏模态框
+                modal.style.display = "none";
+
+                // 开始数据采集
+                console.log('Starting data collection for step:', step);
+                isCollecting = true;
+                calibrationStep = step;
+                calibrationData = {
+                    x: [], y: [], z: []
+                };
+
+                // 更新状态显示
+                const statusElement = document.getElementById('calibrationStatus');
+                if (statusElement) {
+                    statusElement.textContent = '正在采集数据...';
+                }
+            };
+
+            modal.style.display = "block";
+        }
+
+        function startCollectingData(step) {
+            console.log('Starting data collection for step:', step);
+            isCollecting = true;
+            calibrationStep = step;
+            calibrationData = {
+                x: [], y: [], z: []
+            };
+
+            // 更新状态显示
+            const statusElement = document.getElementById('calibrationStatus');
+            if (statusElement) {
+                statusElement.textContent = '正在采集数据...';
+            }
+        }
+
+        function processCalibrationData(data) {
+            try {
+                if (!isCalibrating || !isCollecting) {
+                    console.log('Not in calibration mode or not collecting:', { isCalibrating, isCollecting });
+                    return;
+                }
+
+                console.log('Processing calibration data:', data);
+
+                // 添加数据到校准数组
+                calibrationData.x.push(data.orientation.x);
+                calibrationData.y.push(data.orientation.y);
+                calibrationData.z.push(data.orientation.z);
+
+                // 更新状态显示
+                const statusElement = document.getElementById('calibrationStatus');
+                if (statusElement) {
+                    statusElement.textContent = `正在采集数据...(${calibrationData.x.length}/${CALIBRATION_SAMPLES})`;
+                }
+
+                // 检查是否收集了足够的样本
+                if (calibrationData.x.length >= CALIBRATION_SAMPLES) {
+                    console.log('Collected enough samples, calculating offsets...');
+
+                    // 计算平均值
+                    const avgX = calibrationData.x.reduce((a, b) => a + b, 0) / CALIBRATION_SAMPLES;
+                    const avgY = calibrationData.y.reduce((a, b) => a + b, 0) / CALIBRATION_SAMPLES;
+                    const avgZ = calibrationData.z.reduce((a, b) => a + b, 0) / CALIBRATION_SAMPLES;
+
+                    // 根据当前步骤存储偏移量
+                    switch (calibrationStep) {
+                        case 1:
+                            calibrationOffset.horizontal = { x: avgX, y: avgY, z: avgZ };
+                            break;
+                        case 2:
+                            calibrationOffset.vertical = { x: avgX, y: avgY, z: avgZ };
+                            break;
+                        case 3:
+                            calibrationOffset.side = { x: avgX, y: avgY, z: avgZ };
+                            break;
+                        case 4:
+                            calibrationOffset.rotate = { x: avgX, y: avgY, z: avgZ };
+                            break;
+                    }
+
+                    // 停止采集
+                    isCollecting = false;
+
+                    // 如果是最后一步，完成校准
+                    if (calibrationStep === 4) {
+                        console.log('Calibration complete, calculating final offsets...');
+                        calculateFinalOffset();
+                        isCalibrating = false;
+
+                        // 启用开始校准按钮
+                        const startCalibrationBtn = document.getElementById('startCalibration');
+                        if (startCalibrationBtn) {
+                            startCalibrationBtn.disabled = false;
+                        }
+
+                        // 显示完成消息
+                        if (statusElement) {
+                            statusElement.textContent = '校准完成';
+                        }
+                    } else {
+                        // 显示下一步
+                        console.log('Moving to next step...');
+                        setTimeout(() => {
+                            showCalibrationGuide(calibrationStep + 1);
+                        }, 1000);
+                    }
+                }
+            } catch (error) {
+                console.error('Error processing calibration data:', error);
+            }
+        }
+
+        function calculateStandardDeviation(values) {
+            const n = values.length;
+            const mean = values.reduce((a, b) => a + b, 0) / n;
+            const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / n;
+            return Math.sqrt(variance);
+        }
+
+        function calculateFinalOffset() {
+            // 使用水平位置作为基准
+            calibrationOffset.final = {
+                x: calibrationOffset.horizontal.x,
+                y: calibrationOffset.horizontal.y,
+                z: calibrationOffset.horizontal.z
+            };
+
+            console.log('Final calibration offsets:', calibrationOffset.final);
+        }
+    </script>
+</body>
+
+</html>
