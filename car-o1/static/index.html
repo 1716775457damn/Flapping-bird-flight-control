@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>ESP32 MPU6050 数据</title>
+    <meta charset="UTF-8">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+        }
+
+        .container {
+            display: flex;
+            gap: 20px;
+            padding: 20px;
+            max-width: 1200px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .data-panel {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            flex: 1;
+        }
+
+        .visualization-panel {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            flex: 2;
+        }
+
+        #visualization {
+            width: 100%;
+            height: 400px;
+            background: #000;
+            border-radius: 5px;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .data-row {
+            margin: 15px 0;
+            font-size: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .value {
+            font-weight: bold;
+            color: #2196F3;
+            font-size: 18px;
+            font-family: monospace;
+        }
+
+        .status {
+            padding: 8px 15px;
+            border-radius: 20px;
+            display: inline-block;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .connected {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .disconnected {
+            background: #f44336;
+            color: white;
+        }
+
+        .label {
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>MPU6050 实时数据</h1>
+    <div class="container">
+        <div class="data-panel">
+            <div style="text-align: center;">
+                <div id="connection-status" class="status disconnected">未连接</div>
+            </div>
+            <div class="data-row">
+                <span class="label">X轴加速度:</span>
+                <span id="mpu-x" class="value">0.00 g</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Y轴加速度:</span>
+                <span id="mpu-y" class="value">0.00 g</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Z轴加速度:</span>
+                <span id="mpu-z" class="value">0.00 g</span>
+            </div>
+            <div class="data-row">
+                <span class="label">X轴速度:</span>
+                <span id="vel-x" class="value">0.00 m/s</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Y轴速度:</span>
+                <span id="vel-y" class="value">0.00 m/s</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Z轴速度:</span>
+                <span id="vel-z" class="value">0.00 m/s</span>
+            </div>
+            <div class="data-row">
+                <span class="label">X轴位置:</span>
+                <span id="pos-x" class="value">0.00 m</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Y轴位置:</span>
+                <span id="pos-y" class="value">0.00 m</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Z轴位置:</span>
+                <span id="pos-z" class="value">0.00 m</span>
+            </div>
+        </div>
+        <div class="visualization-panel">
+            <div id="visualization"></div>
+        </div>
+    </div>
+
+    <script>
+        // 性能优化：使用requestAnimationFrame
+        let animationFrameId = null;
+        let lastRenderTime = 0;
+        const RENDER_INTERVAL = 16; // 约60fps
+
+        // Three.js 场景设置
+        let scene, camera, renderer, cube, pathGeometry, pathLine;
+        const pathPoints = [];
+        const MAX_PATH_POINTS = 100; // 限制路径点数量
+
+        // 性能优化：使用WebGL2
+        function initVisualization() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+
+            camera = new THREE.PerspectiveCamera(75, document.getElementById('visualization').clientWidth / 400, 0.1, 1000);
+            camera.position.set(10, 10, 10);
+            camera.lookAt(0, 0, 0);
+
+            // 使用WebGL2
+            renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                powerPreference: "high-performance",
+                alpha: false
+            });
+            renderer.setSize(document.getElementById('visualization').clientWidth, 400);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.getElementById('visualization').appendChild(renderer.domElement);
+
+            // 优化网格和坐标轴
+            const gridHelper = new THREE.GridHelper(20, 20);
+            gridHelper.material.transparent = true;
+            gridHelper.material.opacity = 0.5;
+            scene.add(gridHelper);
+
+            const axesHelper = new THREE.AxesHelper(5);
+            scene.add(axesHelper);
+
+            // 优化立方体
+            const geometry = new THREE.BoxGeometry(2, 0.5, 1);
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x00ff00,
+                transparent: true,
+                opacity: 0.8,
+                flatShading: true
+            });
+            cube = new THREE.Mesh(geometry, material);
+            scene.add(cube);
+
+            // 优化轨迹线
+            pathGeometry = new THREE.BufferGeometry();
+            const pathMaterial = new THREE.LineBasicMaterial({
+                color: 0xff0000,
+                linewidth: 2
+            });
+            pathLine = new THREE.Line(pathGeometry, pathMaterial);
+            scene.add(pathLine);
+
+            // 优化光源
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 5, 5);
+            scene.add(directionalLight);
+
+            animate();
+        }
+
+        function animate(timestamp) {
+            animationFrameId = requestAnimationFrame(animate);
+
+            // 限制渲染帧率
+            if (timestamp - lastRenderTime < RENDER_INTERVAL) {
+                return;
+            }
+            lastRenderTime = timestamp;
+
+            renderer.render(scene, camera);
+        }
+
+        // 优化数据更新函数
+        let lastDataUpdate = 0;
+        const DATA_UPDATE_INTERVAL = 50; // 20fps的数据更新率
+
+        async function updateMPUData() {
+            const now = performance.now();
+            if (now - lastDataUpdate < DATA_UPDATE_INTERVAL) {
+                return;
+            }
+            lastDataUpdate = now;
+
+            try {
+                const response = await fetch('/gyro', {
+                    method: 'GET',
+                    cache: 'no-cache',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (data.error) {
+                    console.error('Server error:', data.error);
+                    return;
+                }
+
+                // 优化数据显示更新
+                requestAnimationFrame(() => {
+                    updateDisplayValues(data);
+                    updateVisualization(data);
+                });
+
+            } catch (error) {
+                console.error('Error fetching MPU data:', error);
+                document.getElementById('connection-status').textContent = '未连接';
+                document.getElementById('connection-status').className = 'status disconnected';
+            }
+        }
+
+        // 分离显示更新逻辑
+        function updateDisplayValues(data) {
+            document.getElementById('mpu-x').textContent = `${parseFloat(data.acceleration.x).toFixed(3)} g`;
+            document.getElementById('mpu-y').textContent = `${parseFloat(data.acceleration.y).toFixed(3)} g`;
+            document.getElementById('mpu-z').textContent = `${parseFloat(data.acceleration.z).toFixed(3)} g`;
+
+            document.getElementById('vel-x').textContent = `${parseFloat(data.velocity.x).toFixed(3)} m/s`;
+            document.getElementById('vel-y').textContent = `${parseFloat(data.velocity.y).toFixed(3)} m/s`;
+            document.getElementById('vel-z').textContent = `${parseFloat(data.velocity.z).toFixed(3)} m/s`;
+
+            document.getElementById('pos-x').textContent = `${parseFloat(data.position.x).toFixed(3)} m`;
+            document.getElementById('pos-y').textContent = `${parseFloat(data.position.y).toFixed(3)} m`;
+            document.getElementById('pos-z').textContent = `${parseFloat(data.position.z).toFixed(3)} m`;
+
+            document.getElementById('connection-status').textContent = '已连接';
+            document.getElementById('connection-status').className = 'status connected';
+        }
+
+        function updateVisualization(data) {
+            if (!cube) return;
+
+            // 更新立方体位置
+            cube.position.set(
+                data.position.x,
+                data.position.y,
+                data.position.z
+            );
+
+            // 更新立方体旋转
+            cube.rotation.set(
+                THREE.MathUtils.degToRad(data.orientation.x),
+                THREE.MathUtils.degToRad(data.orientation.y),
+                THREE.MathUtils.degToRad(data.orientation.z)
+            );
+
+            // 更新轨迹
+            pathPoints.push(new THREE.Vector3(
+                data.position.x,
+                data.position.y,
+                data.position.z
+            ));
+
+            // 限制轨迹点数量
+            if (pathPoints.length > MAX_PATH_POINTS) {
+                pathPoints.shift();
+            }
+
+            // 更新轨迹线
+            pathGeometry.setFromPoints(pathPoints);
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Starting visualization...');
+            initVisualization();
+
+            // 使用setInterval替代递归的setTimeout
+            const updateInterval = setInterval(updateMPUData, DATA_UPDATE_INTERVAL);
+
+            // 页面关闭时清理
+            window.addEventListener('beforeunload', () => {
+                if (updateInterval) {
+                    clearInterval(updateInterval);
+                }
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                }
+            });
+        });
+
+        // 优化窗口大小改变处理
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            if (resizeTimeout) {
+                clearTimeout(resizeTimeout);
+            }
+            resizeTimeout = setTimeout(() => {
+                if (renderer && camera) {
+                    const width = document.getElementById('visualization').clientWidth;
+                    const height = 400;
+
+                    camera.aspect = width / height;
+                    camera.updateProjectionMatrix();
+
+                    renderer.setSize(width, height);
+                    renderer.setPixelRatio(window.devicePixelRatio);
+                }
+            }, 100);
+        });
+    </script>
+</body>
+
+</html>
