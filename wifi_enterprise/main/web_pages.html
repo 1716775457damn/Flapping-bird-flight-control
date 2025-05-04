@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>遥控车控制面板</title>
+  <style>
+    /* 设计系统样式 */
+    :root {
+      --primary-color: #007AFF;
+      --secondary-color: #5AC8FA;
+      --success-color: #34C759;
+      --warning-color: #FF9500;
+      --danger-color: #FF3B30;
+      --gray-1: #8E8E93;
+      --gray-2: #AEAEB2;
+      --gray-3: #C7C7CC;
+      --gray-4: #D1D1D6;
+      --gray-5: #E5E5EA;
+      --gray-6: #F2F2F7;
+      --background: #FFFFFF;
+      --card-background: #FFFFFF;
+      --text-primary: #000000;
+      --text-secondary: #3C3C43;
+      --text-tertiary: #3C3C4399;
+      --border-radius: 12px;
+      --section-border-radius: 20px;
+      --shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+      --card-shadow: 0 2px 14px rgba(0, 0, 0, 0.06);
+    }
+    
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --background: #000000;
+        --card-background: #1C1C1E;
+        --text-primary: #FFFFFF;
+        --text-secondary: #EBEBF599;
+        --text-tertiary: #EBEBF566;
+        --shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+        --card-shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
+      }
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    }
+
+    html, body {
+      height: 100%;
+      width: 100%;
+      overflow-x: hidden;
+      background-color: var(--gray-6);
+      color: var(--text-primary);
+    }
+
+    .container {
+      max-width: 100%;
+      margin: 0 auto;
+      padding: 0;
+      position: relative;
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      background-color: rgba(var(--gray-6), 0.8);
+      padding: 24px 20px 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--gray-5);
+    }
+
+    .header h1 {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin: 0;
+    }
+    
+    .status-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background-color: var(--danger-color);
+      margin-left: auto;
+    }
+
+    .status-indicator.connected {
+      background-color: var(--success-color);
+    }
+
+    .section {
+      margin: 0 16px 20px;
+      border-radius: var(--section-border-radius);
+      overflow: hidden;
+      background-color: var(--card-background);
+      box-shadow: var(--card-shadow);
+    }
+
+    .section-header {
+      padding: 16px;
+      border-bottom: 1px solid var(--gray-5);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .section-header h2 {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .sensor-data {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .sensor-group {
+      background-color: var(--gray-6);
+      border-radius: var(--border-radius);
+      padding: 16px;
+      overflow: hidden;
+    }
+
+    .sensor-group h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .sensor-value {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .sensor-axis {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .axis-label {
+      font-size: 14px;
+      color: var(--text-tertiary);
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+
+    .axis-value {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .joystick-container {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .joystick-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .joystick {
+      width: 140px;
+      height: 140px;
+      background: var(--gray-6);
+      border-radius: 50%;
+      position: relative;
+      border: 2px solid var(--gray-4);
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    .joystick::after {
+      content: '';
+      position: absolute;
+      width: 2px;
+      height: 2px;
+      background-color: var(--gray-3);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+    }
+
+    .joystick .handle {
+      width: 50px;
+      height: 50px;
+      background: var(--primary-color);
+      border-radius: 50%;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      cursor: pointer;
+      transition: box-shadow 0.2s;
+      box-shadow: 0 4px 12px rgba(0, 122, 255, 0.4);
+    }
+
+    .joystick-label {
+      margin-top: 12px;
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .control-panel {
+      padding: 16px;
+    }
+
+    .control-group {
+      margin-bottom: 16px;
+    }
+
+    .switch-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--gray-5);
+    }
+
+    .switch-label {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 51px;
+      height: 31px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: var(--gray-4);
+      -webkit-transition: .2s;
+      transition: .2s;
+      border-radius: 34px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 27px;
+      width: 27px;
+      left: 2px;
+      bottom: 2px;
+      background-color: white;
+      -webkit-transition: .2s;
+      transition: .2s;
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    input:checked + .slider {
+      background-color: var(--success-color);
+    }
+
+    input:checked + .slider:before {
+      -webkit-transform: translateX(20px);
+      -ms-transform: translateX(20px);
+      transform: translateX(20px);
+    }
+
+    .action-buttons {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .button {
+      padding: 14px 0;
+      border-radius: var(--border-radius);
+      font-size: 16px;
+      font-weight: 600;
+      text-align: center;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      color: white;
+    }
+
+    .button-primary {
+      background-color: var(--primary-color);
+      box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2);
+    }
+
+    .button-success {
+      background-color: var(--success-color);
+      box-shadow: 0 4px 12px rgba(52, 199, 89, 0.2);
+    }
+
+    .button-danger {
+      background-color: var(--danger-color);
+      box-shadow: 0 4px 12px rgba(255, 59, 48, 0.2);
+    }
+
+    .button:active {
+      transform: scale(0.97);
+      box-shadow: none;
+    }
+
+    .data-monitor {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .data-card {
+      background-color: var(--gray-6);
+      border-radius: var(--border-radius);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .data-label {
+      font-size: 14px;
+      color: var(--text-tertiary);
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+
+    .data-value {
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+    }
+    
+    .sensor-fullwidth {
+      grid-column: 1 / -1;
+    }
+    
+    .model-3d {
+      width: 160px;
+      height: 160px;
+      background-color: var(--gray-6);
+      margin: 16px auto;
+      position: relative;
+      transform-style: preserve-3d;
+      transition: transform 0.1s ease;
+    }
+
+    .face {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      opacity: 0.8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      border: 1px solid rgba(0,0,0,0.1);
+    }
+
+    .front {
+      transform: translateZ(80px);
+      background-color: rgba(255, 59, 48, 0.8);
+    }
+
+    .back {
+      transform: translateZ(-80px) rotateY(180deg);
+      background-color: rgba(0, 122, 255, 0.8);
+    }
+
+    .right {
+      transform: translateX(80px) rotateY(90deg);
+      background-color: rgba(52, 199, 89, 0.8);
+    }
+
+    .left {
+      transform: translateX(-80px) rotateY(-90deg);
+      background-color: rgba(255, 149, 0, 0.8);
+    }
+
+    .top {
+      transform: translateY(-80px) rotateX(90deg);
+      background-color: rgba(175, 82, 222, 0.8);
+    }
+
+    .bottom {
+      transform: translateY(80px) rotateX(-90deg);
+      background-color: rgba(90, 200, 250, 0.8);
+    }
+    
+    .model-container {
+      perspective: 800px;
+      width: 160px;
+      height: 160px;
+      margin: 0 auto;
+    }
+    
+    @media (max-width: 600px) {
+      .sensor-data {
+        grid-template-columns: 1fr;
+      }
+    }
+    
+    /* 添加失控警告样式 */
+    .alert-container {
+      margin-top: 16px;
+      overflow: hidden;
+      max-height: 0;
+      transition: max-height 0.3s ease-out;
+    }
+    
+    .alert-container.active {
+      max-height: 80px;
+    }
+    
+    .alert {
+      background-color: var(--danger-color);
+      color: white;
+      padding: 16px;
+      border-radius: var(--border-radius);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 600;
+    }
+    
+    .alert-icon {
+      width: 24px;
+      height: 24px;
+      background-color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--danger-color);
+      font-weight: bold;
+    }
+    
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+    
+    .alert.pulse {
+      animation: pulse 0.8s infinite;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>遥控车控制器</h1>
+      <div id="statusIndicator" class="status-indicator"></div>
+    </div>
+    
+    <!-- 失控警告 -->
+    <div id="alertContainer" class="alert-container">
+      <div class="alert pulse">
+        <div class="alert-icon">!</div>
+        <div id="alertMessage">车辆失控</div>
+      </div>
+    </div>
+    
+    <!-- JY901 传感器数据 -->
+    <div class="section">
+      <div class="section-header">
+        <h2>JY901 传感器数据</h2>
+      </div>
+      <div class="sensor-data">
+        <div class="sensor-group">
+          <h3>角度 (°)</h3>
+          <div class="sensor-value">
+            <div class="sensor-axis">
+              <div class="axis-label">Roll</div>
+              <div id="angleRoll" class="axis-value">0.00</div>
+            </div>
+            <div class="sensor-axis">
+              <div class="axis-label">Pitch</div>
+              <div id="anglePitch" class="axis-value">0.00</div>
+            </div>
+            <div class="sensor-axis">
+              <div class="axis-label">Yaw</div>
+              <div id="angleYaw" class="axis-value">0.00</div>
+            </div>
+          </div>
+        </div>
+        <div class="sensor-group">
+          <h3>加速度 (g)</h3>
+          <div class="sensor-value">
+            <div class="sensor-axis">
+              <div class="axis-label">X</div>
+              <div id="accX" class="axis-value">0.00</div>
+            </div>
+            <div class="sensor-axis">
+              <div class="axis-label">Y</div>
+              <div id="accY" class="axis-value">0.00</div>
+            </div>
+            <div class="sensor-axis">
+              <div class="axis-label">Z</div>
+              <div id="accZ" class="axis-value">0.00</div>
+            </div>
+          </div>
+        </div>
+        <div class="sensor-group">
+          <h3>角速度 (°/s)</h3>
+          <div class="sensor-value">
+            <div class="sensor-axis">
+              <div class="axis-label">X</div>
+              <div id="gyroX" class="axis-value">0.00</div>
+            </div>
+            <div class="sensor-axis">
+              <div class="axis-label">Y</div>
+              <div id="gyroY" class="axis-value">0.00</div>
+            </div>
+            <div class="sensor-axis">
+              <div class="axis-label">Z</div>
+              <div id="gyroZ" class="axis-value">0.00</div>
+            </div>
+          </div>
+        </div>
+        <div class="sensor-group">
+          <h3>磁场</h3>
+          <div class="sensor-value">
+            <div class="sensor-axis">
+              <div class="axis-label">X</div>
+              <div id="magX" class="axis-value">0</div>
+            </div>
+            <div class="sensor-axis">
+              <div class="axis-label">Y</div>
+              <div id="magY" class="axis-value">0</div>
+            </div>
+            <div class="sensor-axis">
+              <div class="axis-label">Z</div>
+              <div id="magZ" class="axis-value">0</div>
+            </div>
+          </div>
+        </div>
+        <div class="sensor-group sensor-fullwidth">
+          <div class="model-container">
+            <div id="model3D" class="model-3d">
+              <div class="face front">前</div>
+              <div class="face back">后</div>
+              <div class="face right">右</div>
+              <div class="face left">左</div>
+              <div class="face top">上</div>
+              <div class="face bottom">下</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 控制面板 -->
+    <div class="section">
+      <div class="section-header">
+        <h2>控制面板</h2>
+      </div>
+      <div class="control-panel">
+        <div class="control-group">
+          <div class="switch-container">
+            <span class="switch-label">倾角控制</span>
+            <label class="switch">
+              <input type="checkbox" id="angleControlSwitch">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        <div class="action-buttons">
+          <button id="takeoffButton" class="button button-success">一键起飞</button>
+          <button id="landingButton" class="button button-danger">一键降落</button>
+          <button id="stopButton" class="button button-primary">结束控制</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 遥感控制 -->
+    <div class="section">
+      <div class="section-header">
+        <h2>遥感控制</h2>
+      </div>
+      <div class="joystick-container">
+        <div class="joystick-wrapper">
+          <div class="joystick" id="joystick1">
+            <div class="handle"></div>
+          </div>
+          <div class="joystick-label">油门</div>
+        </div>
+        <div class="joystick-wrapper">
+          <div class="joystick" id="joystick2">
+            <div class="handle"></div>
+          </div>
+          <div class="joystick-label">转向</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 实时数据 -->
+    <div class="section">
+      <div class="section-header">
+        <h2>实时数据</h2>
+      </div>
+      <div class="data-monitor">
+        <div class="data-card">
+          <div class="data-label">油门值</div>
+          <div id="throttleValue" class="data-value">0</div>
+        </div>
+        <div class="data-card">
+          <div class="data-label">舵机值</div>
+          <div id="steeringValue" class="data-value">0</div>
+        </div>
+        <div class="data-card" style="grid-column: 1 / -1;">
+          <div class="data-label">控制状态</div>
+          <div id="controlStatus" class="data-value" style="color: var(--success-color);">正常</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 状态指示灯
+    const statusIndicator = document.getElementById('statusIndicator');
+    let isConnected = false;
+    
+    // 失控警告元素
+    const alertContainer = document.getElementById('alertContainer');
+    const alertMessage = document.getElementById('alertMessage');
+    
+    // 3D模型元素
+    const model3D = document.getElementById('model3D');
+    
+    // 遥感元素
+    const joystick1 = document.getElementById('joystick1');
+    const handle1 = joystick1.querySelector('.handle');
+    const joystick2 = document.getElementById('joystick2');
+    const handle2 = joystick2.querySelector('.handle');
+    
+    // 数据元素
+    const throttleValue = document.getElementById('throttleValue');
+    const steeringValue = document.getElementById('steeringValue');
+    const controlStatus = document.getElementById('controlStatus');
+    
+    // 角度数据
+    const angleRoll = document.getElementById('angleRoll');
+    const anglePitch = document.getElementById('anglePitch');
+    const angleYaw = document.getElementById('angleYaw');
+    
+    // 加速度数据
+    const accX = document.getElementById('accX');
+    const accY = document.getElementById('accY');
+    const accZ = document.getElementById('accZ');
+    
+    // 角速度数据
+    const gyroX = document.getElementById('gyroX');
+    const gyroY = document.getElementById('gyroY');
+    const gyroZ = document.getElementById('gyroZ');
+    
+    // 磁场数据
+    const magX = document.getElementById('magX');
+    const magY = document.getElementById('magY');
+    const magZ = document.getElementById('magZ');
+    
+    // 控制状态
+    let lastSentValue = 0;
+    let lastSentValueSteer = 0;
+    let isMoving = false;
+    let isMovingSteer = false;
+    let isHolding = false;
+    
+    // 摇杆1(油门) - 全向控制
+    joystick1.addEventListener('touchstart', handleStart);
+    joystick1.addEventListener('touchmove', handleMove);
+    joystick1.addEventListener('touchend', handleEnd);
+    joystick1.addEventListener('mousedown', handleStart);
+    joystick1.addEventListener('mousemove', handleMove);
+    joystick1.addEventListener('mouseup', handleEnd);
+    joystick1.addEventListener('mouseleave', handleEnd);
+
+    function handleStart(e) {
+      isMoving = true;
+      updatePosition(e);
+    }
+
+    function handleMove(e) {
+      if (!isMoving) return;
+      e.preventDefault();
+      updatePosition(e);
+    }
+
+    function handleEnd() {
+      isMoving = false;
+      handle1.style.top = '50%';
+      handle1.style.left = '50%';
+      handle1.style.transform = 'translate(-50%, -50%)';
+      lastSentValue = 0;
+      lastSentValueSteer = 0;
+      sendControl(0, 0);
+      throttleValue.textContent = '0';
+      steeringValue.textContent = '0';
+    }
+
+    function updatePosition(e) {
+      const rect = joystick1.getBoundingClientRect();
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      
+      // 获取触摸/鼠标位置
+      let clientX, clientY;
+      if (e.type.includes('touch')) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+      
+      // 计算相对于摇杆中心的偏移
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      const offsetX = x - centerX;
+      const offsetY = y - centerY;
+      
+      // 计算距离和角度
+      const distance = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
+      const maxDistance = rect.width / 2 - 25; // handle宽度的一半
+      
+      // 限制在圆形区域内
+      const limitedDistance = Math.min(distance, maxDistance);
+      const angle = Math.atan2(offsetY, offsetX);
+      
+      // 计算新位置
+      const newX = centerX + limitedDistance * Math.cos(angle);
+      const newY = centerY + limitedDistance * Math.sin(angle);
+      
+      // 更新手柄位置
+      handle1.style.left = `${newX}px`;
+      handle1.style.top = `${newY}px`;
+      handle1.style.transform = 'translate(-50%, -50%)';
+      
+      // 计算油门值（上下方向，上 = 负，下 = 正）
+      // 归一化为 -100 到 100
+      const throttle = -Math.sin(angle) * (limitedDistance / maxDistance) * 100;
+      
+      // 计算转向值（左右方向，左 = 负，右 = 正）
+      const steering = 0;
+      
+      // 保存最后的值
+      lastSentValue = throttle;
+      
+      // 更新显示
+      throttleValue.textContent = Math.round(throttle);
+      
+      // 发送控制命令
+      sendControl(throttle, steering);
+    }
+    
+    // 摇杆2(转向) - 全向控制
+    joystick2.addEventListener('touchstart', handleStartSteer);
+    joystick2.addEventListener('touchmove', handleMoveSteer);
+    joystick2.addEventListener('touchend', handleEndSteer);
+    joystick2.addEventListener('mousedown', handleStartSteer);
+    joystick2.addEventListener('mousemove', handleMoveSteer);
+    joystick2.addEventListener('mouseup', handleEndSteer);
+    joystick2.addEventListener('mouseleave', handleEndSteer);
+
+    function handleStartSteer(e) {
+      isMovingSteer = true;
+      updatePositionSteer(e);
+    }
+
+    function handleMoveSteer(e) {
+      if (!isMovingSteer) return;
+      e.preventDefault();
+      updatePositionSteer(e);
+    }
+
+    function handleEndSteer() {
+      isMovingSteer = false;
+      handle2.style.top = '50%';
+      handle2.style.left = '50%';
+      handle2.style.transform = 'translate(-50%, -50%)';
+      lastSentValueSteer = 0;
+      sendControl(lastSentValue, 0);
+      steeringValue.textContent = '0';
+    }
+
+    function updatePositionSteer(e) {
+      const rect = joystick2.getBoundingClientRect();
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      
+      // 获取触摸/鼠标位置
+      let clientX, clientY;
+      if (e.type.includes('touch')) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+      
+      // 计算相对于摇杆中心的偏移
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      const offsetX = x - centerX;
+      const offsetY = y - centerY;
+      
+      // 计算距离和角度
+      const distance = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
+      const maxDistance = rect.width / 2 - 25; // handle宽度的一半
+      
+      // 限制在圆形区域内
+      const limitedDistance = Math.min(distance, maxDistance);
+      const angle = Math.atan2(offsetY, offsetX);
+      
+      // 计算新位置
+      const newX = centerX + limitedDistance * Math.cos(angle);
+      const newY = centerY + limitedDistance * Math.sin(angle);
+      
+      // 更新手柄位置
+      handle2.style.left = `${newX}px`;
+      handle2.style.top = `${newY}px`;
+      handle2.style.transform = 'translate(-50%, -50%)';
+      
+      // 计算转向值（左右方向，左 = 负，右 = 正）
+      // 归一化为 -100 到 100
+      const steering = Math.cos(angle) * (limitedDistance / maxDistance) * 100;
+      
+      // 保存最后的值
+      lastSentValueSteer = steering;
+      
+      // 更新显示
+      steeringValue.textContent = Math.round(steering);
+      
+      // 发送控制命令
+      sendControl(lastSentValue, steering);
+    }
+    
+    // 发送控制命令
+    function sendControl(throttle, steering) {
+      fetch(`/control?c=${Math.round(throttle)},${Math.round(steering)}`, {
+        method: 'GET',
+        cache: 'no-cache',
+      }).catch(error => {
+        console.error('发送控制失败:', error);
+        statusIndicator.classList.remove('connected');
+        isConnected = false;
+      });
+    }
+    
+    // 检查连接状态
+    function checkConnection() {
+      fetch('/status')
+        .then(response => {
+          if (response.ok) {
+            statusIndicator.classList.add('connected');
+            isConnected = true;
+          } else {
+            statusIndicator.classList.remove('connected');
+            isConnected = false;
+          }
+        })
+        .catch(() => {
+          statusIndicator.classList.remove('connected');
+          isConnected = false;
+        });
+    }
+    
+    // 更新传感器数据
+    function updateSensorData() {
+      if (!isConnected) return;
+      
+      fetch('/gyro', {
+        method: 'GET',
+        cache: 'no-cache'
+      })
+      .then(response => response.json())
+      .then(data => {
+        // 更新角度数据
+        angleRoll.textContent = data.angle.roll.toFixed(2);
+        anglePitch.textContent = data.angle.pitch.toFixed(2);
+        angleYaw.textContent = data.angle.yaw.toFixed(2);
+        
+        // 更新加速度数据
+        accX.textContent = data.acc.x.toFixed(2);
+        accY.textContent = data.acc.y.toFixed(2);
+        accZ.textContent = data.acc.z.toFixed(2);
+        
+        // 更新角速度数据
+        gyroX.textContent = data.gyro.x.toFixed(2);
+        gyroY.textContent = data.gyro.y.toFixed(2);
+        gyroZ.textContent = data.gyro.z.toFixed(2);
+        
+        // 更新磁场数据
+        magX.textContent = data.mag.x;
+        magY.textContent = data.mag.y;
+        magZ.textContent = data.mag.z;
+        
+        // 更新3D模型
+        updateModel(data.angle.roll, data.angle.pitch, data.angle.yaw);
+        
+        // 更新控制状态显示
+        if (data.control && data.control.isOutOfControl) {
+          // 显示失控警告
+          alertContainer.classList.add('active');
+          alertMessage.textContent = data.control.reason || '车辆失控';
+          
+          // 更新控制状态文本
+          controlStatus.textContent = '失控';
+          controlStatus.style.color = 'var(--danger-color)';
+        } else {
+          // 隐藏失控警告
+          alertContainer.classList.remove('active');
+          
+          // 更新控制状态文本
+          controlStatus.textContent = '正常';
+          controlStatus.style.color = 'var(--success-color)';
+        }
+      })
+      .catch(error => {
+        console.error('获取数据失败:', error);
+        isConnected = false;
+        statusIndicator.classList.remove('connected');
+      });
+    }
+    
+    // 更新3D模型角度
+    function updateModel(roll, pitch, yaw) {
+      model3D.style.transform = `rotateX(${pitch}deg) rotateY(${yaw}deg) rotateZ(${roll}deg)`;
+    }
+    
+    // 角度控制开关
+    document.getElementById('angleControlSwitch').addEventListener('change', function(e) {
+      const state = e.target.checked ? 'on' : 'off';
+      fetch('/angle_control?state=' + state)
+        .then(response => response.text())
+        .then(data => console.log('角度控制:', data))
+        .catch(console.error);
+    });
+    
+    // 一键起飞按钮
+    document.getElementById('takeoffButton').addEventListener('click', function() {
+      fetch('/takeoff')
+        .then(response => response.text())
+        .then(data => {
+          console.log('起飞响应:', data);
+          throttleValue.textContent = '100';
+        })
+        .catch(error => console.error('起飞请求失败:', error));
+    });
+    
+    // 一键降落按钮
+    document.getElementById('landingButton').addEventListener('click', function() {
+      fetch('/landing')
+        .then(response => response.text())
+        .then(data => {
+          console.log('降落响应:', data);
+          throttleValue.textContent = '-100';
+        })
+        .catch(error => console.error('降落请求失败:', error));
+    });
+    
+    // 结束控制按钮
+    document.getElementById('stopButton').addEventListener('click', function() {
+      fetch('/stop')
+        .then(response => response.text())
+        .then(data => {
+          console.log('停止响应:', data);
+          throttleValue.textContent = '0';
+          steeringValue.textContent = '0';
+          handle1.style.top = '50%';
+          handle1.style.left = '50%';
+          handle2.style.top = '50%';
+          handle2.style.left = '50%';
+        })
+        .catch(error => console.error('停止请求失败:', error));
+    });
+    
+    // 初始化
+    function init() {
+      // 检查连接状态
+      checkConnection();
+      setInterval(checkConnection, 2000);
+      
+      // 更新传感器数据
+      updateSensorData();
+      setInterval(updateSensorData, 100);
+    }
+    
+    // 页面加载完成后初始化
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html> 

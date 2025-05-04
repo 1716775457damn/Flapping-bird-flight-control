@@ -1,0 +1,1274 @@
+/*
+ * Remote Control Car - ESP-IDF version
+ * 
+ * Main controller for ESP32-S3 based RC platform
+ * Supports WiFi, JY901 sensor, PWM servo control
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <math.h>
+#include "esp_system.h"
+#include "nvs_flash.h"
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "esp_log.h"
+#include "esp_http_server.h"
+#include "esp_timer.h"
+#include "driver/uart.h"
+#include "driver/gpio.h"
+#include "driver/ledc.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
+#include "freertos/queue.h"
+#include "lwip/err.h"
+#include "lwip/sys.h"
+#include "lwip/netdb.h"
+#include "lwip/dns.h"
+#include "cJSON.h"
+#include "esp_mac.h"
+#include "esp_wifi_types.h"
+#include "esp_netif.h"
+
+// Tag for logging
+static const char *TAG = "CAR_CONTROL";
+
+// Include web page resources
+extern const uint8_t web_pages_html_start[] asm("_binary_web_pages_html_start");
+extern const uint8_t web_pages_html_end[] asm("_binary_web_pages_html_end");
+
+/**
+ * 引脚定义部分 - PIN DEFINITIONS
+ * 此处集中定义所有引脚，方便修改和调试
+ */
+// 基础引脚
+#define LED_PIN                  2
+
+// JY901传感器相关引脚和设置
+#define JY901_RX_PIN             18
+#define JY901_TX_PIN             17
+#define JY901_UART_PORT          UART_NUM_1
+#define JY901_UART_BAUD          115200
+#define JY901_BUFFER_SIZE        1024
+
+// 舵机和电机控制引脚 - 使用ESP32-S3有效的GPIO引脚
+#define MAIN_MOTOR_PIN           13  // Main thruster motor
+#define DIRECTION_SERVO1_PIN     12  // First direction servo
+#define DIRECTION_SERVO2_PIN     11  // Second direction servo
+#define DIRECTION_SERVO3_PIN     10  // Third direction servo
+#define STEERING_SERVO_PIN       9   // A0090 steering servo
+#define STEERING_SERVO2_PIN      8   // Backup A0090 steering servo
+
+// LEDC通道定义 - 每个舵机/电机需要独立的通道
+#define MAIN_MOTOR_CHANNEL       LEDC_CHANNEL_0
+#define DIRECTION_SERVO1_CHANNEL LEDC_CHANNEL_1
+#define DIRECTION_SERVO2_CHANNEL LEDC_CHANNEL_2
+#define DIRECTION_SERVO3_CHANNEL LEDC_CHANNEL_3
+#define STEERING_SERVO_CHANNEL   LEDC_CHANNEL_4
+#define STEERING_SERVO2_CHANNEL  LEDC_CHANNEL_5
+
+// WiFi设置
+#define WIFI_AP_SSID             "ESP_ENTERPRISE_AP"   // 更改为与Kconfig一致的名称
+#define WIFI_AP_PASS             "12345678"     // RC car AP password
+#define MAX_STA_CONN             3              // Maximum connections
+#define WIFI_RECONNECT_INTERVAL  10000000       // 10秒尝试一次重连
+#define MAX_WIFI_RECONNECT_ATTEMPTS 5           // 最大重连尝试次数
+
+// JY901数据结构
+typedef struct {
+    float acc[3];    // acceleration
+    float gyro[3];   // angular velocity
+    float angle[3];  // angle
+    int mag[3];      // magnetic field
+} jy901_data_t;
+
+// 接收JY901数据的缓冲区
+static uint8_t jy901_rx_buffer[JY901_BUFFER_SIZE];
+static uint16_t jy901_rx_count = 0;
+
+// 存储当前传感器数据
+static jy901_data_t sensor_data = {0};
+
+// 控制变量
+static float rx_c1 = 0;                // 油门值
+static float rx_c2 = 0;                // 转向值
+static float last_rx_c1 = 0;           // 上一次油门值
+static float last_rx_c2 = 0;           // 上一次转向值
+static bool is_out_of_control = false; // 是否失控
+static char out_of_control_reason[64] = ""; // 失控原因
+static bool is_taking_off = false;     // 起飞状态
+static bool is_landing = false;        // 降落状态
+static float filtered_ax = 0, filtered_ay = 0, filtered_az = 0; // 滤波后的角度
+static bool angle_control_enabled = false; // 倾角控制开关
+
+// FreeRTOS任务句柄
+static TaskHandle_t sensor_task_handle = NULL;
+static TaskHandle_t control_task_handle = NULL;
+
+// WiFi事件组 - 未使用但保留以便将来扩展
+// static EventGroupHandle_t wifi_event_group;
+
+// Web服务器句柄
+static httpd_handle_t server = NULL;
+
+// PWM控制相关设置
+#define LEDC_TIMER               LEDC_TIMER_0
+#define LEDC_MODE                LEDC_LOW_SPEED_MODE
+#define LEDC_DUTY_RES            LEDC_TIMER_13_BIT  // 13-bit resolution
+#define LEDC_FREQUENCY           50              // PWM frequency in Hz
+
+// HTTP服务器相关配置 - 移动到函数声明之后，使用前向声明
+static esp_err_t root_handler(httpd_req_t *req);
+static esp_err_t web_page_handler(httpd_req_t *req);
+static esp_err_t gyro_data_handler(httpd_req_t *req);
+static esp_err_t status_handler(httpd_req_t *req);
+static esp_err_t angle_control_handler(httpd_req_t *req);
+static esp_err_t takeoff_handler(httpd_req_t *req);
+static esp_err_t landing_handler(httpd_req_t *req);
+static esp_err_t stop_handler(httpd_req_t *req);
+
+static const httpd_uri_t root = {
+    .uri       = "/control",
+    .method    = HTTP_GET,
+    .handler   = root_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t web_page = {
+    .uri       = "/",
+    .method    = HTTP_GET,
+    .handler   = web_page_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t gyro_data = {
+    .uri       = "/gyro",
+    .method    = HTTP_GET,
+    .handler   = gyro_data_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t status = {
+    .uri       = "/status",
+    .method    = HTTP_GET,
+    .handler   = status_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t angle_control = {
+    .uri       = "/angle_control",
+    .method    = HTTP_GET,
+    .handler   = angle_control_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t takeoff = {
+    .uri       = "/takeoff",
+    .method    = HTTP_GET,
+    .handler   = takeoff_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t landing = {
+    .uri       = "/landing",
+    .method    = HTTP_GET,
+    .handler   = landing_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t stop = {
+    .uri       = "/stop",
+    .method    = HTTP_GET,
+    .handler   = stop_handler,
+    .user_ctx  = NULL
+};
+
+// Servo control structure
+typedef struct {
+    float freq;
+    int resolution;
+    float pwm_base_scale;
+    float pwm_min;
+    float pwm_max;
+    int channel;
+    float scale;
+    int type;  // 0=standard servo, 1=continuous rotation servo
+    int gpio_pin;
+} ledc_servo_t;
+
+// 舵机结构体数组声明
+static ledc_servo_t servos[6]; // 最多6个舵机
+
+// PID控制器结构体
+typedef struct {
+    float kp;
+    float ki;
+    float kd;
+    float last_error;
+    float integral;
+    float output_min;
+    float output_max;
+    int64_t last_time;
+} pid_controller_t;
+
+// Function forward declarations
+static void init_gpio(void);
+static void init_uart(void);
+static void init_pwm(void);
+static void wifi_init_softap(void);
+static void update_servo(void);
+static void parse_jy901_data(void);
+static void jy901_sensor_task(void *pvParameters);
+static void control_task(void *pvParameters);
+static void handle_angle_control(void);
+static httpd_handle_t start_webserver(void);
+static void stop_webserver(httpd_handle_t server);
+static void pid_init(pid_controller_t *pid, float p, float i, float d, float min, float max);
+static float pid_compute(pid_controller_t *pid, float setpoint, float input);
+static void pid_reset(pid_controller_t *pid);
+static void servo_setup(ledc_servo_t *servo, float freq, int resolution, ledc_channel_t channel, int gpio_pin, int servo_type);
+static void servo_set_scale(ledc_servo_t *servo, float scale);
+static void servo_write(ledc_servo_t *servo, float value, float min, float max);
+static void servo_write_speed(ledc_servo_t *servo, float speed);
+static esp_err_t servo_setup_with_error_check(ledc_servo_t *servo, float freq, int resolution, 
+                    ledc_channel_t channel, int gpio_pin, int servo_type);
+
+// ESP-IDF中浮点数映射函数
+static float map_float(float x, float in_min, float in_max, float out_min, float out_max) {
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+// WiFi事件的位 - 未使用但保留以备将来扩展
+// static const int WIFI_CONNECTED_BIT = BIT0;
+
+// WiFi事件处理函数
+static void wifi_event_handler(void* arg, esp_event_base_t event_base,
+                               int32_t event_id, void* event_data) {
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
+        wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
+        ESP_LOGI(TAG, "Station "MACSTR" joined, AID=%d",
+                 MAC2STR(event->mac), event->aid);
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+        wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
+        ESP_LOGI(TAG, "Station "MACSTR" left, AID=%d",
+                 MAC2STR(event->mac), event->aid);
+    }
+}
+
+// 添加WiFi监控变量
+static bool wifi_initialized = false;
+static bool wifi_needs_reconnect = false;
+static int wifi_reconnect_attempts = 0;
+static int64_t last_wifi_check_time = 0;
+
+// 修改WiFi初始化函数，增加稳定性和重连功能
+static void wifi_init_softap(void) {
+    ESP_LOGI(TAG, "初始化WiFi接入点");
+    
+    // 防止重复初始化
+    if (wifi_initialized) {
+        ESP_LOGW(TAG, "WiFi已经初始化，跳过");
+        return;
+    }
+    
+    // Create default WiFi event loop
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
+    if (ap_netif == NULL) {
+        ESP_LOGE(TAG, "创建默认WiFi AP netif失败");
+        return;
+    }
+    
+    // Initialize WiFi with default configuration
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    
+    // 调整缓冲区大小，提高稳定性
+    cfg.static_rx_buf_num = 16;       // 增加静态接收缓冲区数量
+    cfg.dynamic_rx_buf_num = 64;      // 增加动态接收缓冲区数量
+    cfg.rx_ba_win = 16;               // 增加接收BA窗口大小
+    
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    
+    // Register event handler
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+                                                        ESP_EVENT_ANY_ID,
+                                                        &wifi_event_handler,
+                                                        NULL,
+                                                        NULL));
+    
+    // Configure WiFi AP
+    wifi_config_t wifi_config = {
+        .ap = {
+            .ssid = WIFI_AP_SSID,
+            .ssid_len = strlen(WIFI_AP_SSID),
+            .password = WIFI_AP_PASS,
+            .max_connection = MAX_STA_CONN,
+            .authmode = WIFI_AUTH_WPA_WPA2_PSK,
+            .channel = 1,
+        },
+    };
+    
+    // If no password, use open authentication
+    if (strlen(WIFI_AP_PASS) == 0) {
+        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+    }
+    
+    // 设置WiFi模式，优先使用低干扰通道
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    
+    // 设置WiFi功率以提高稳定性，但降低功耗
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE)); // 禁用省电模式，提高响应速度
+    
+    // Start WiFi
+    esp_err_t start_err = esp_wifi_start();
+    if (start_err != ESP_OK) {
+        ESP_LOGE(TAG, "启动WiFi AP失败: %s", esp_err_to_name(start_err));
+        return;
+    }
+    
+    // 标记WiFi已初始化
+    wifi_initialized = true;
+    wifi_reconnect_attempts = 0;
+    
+    // Print AP information
+    uint8_t mac[6];
+    esp_wifi_get_mac(WIFI_IF_AP, mac);
+    ESP_LOGI(TAG, "WiFi AP启动成功!");
+    ESP_LOGI(TAG, "WiFi MAC: %02X:%02X:%02X:%02X:%02X:%02X", 
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    ESP_LOGI(TAG, "AP SSID: %s, 密码: %s, 通道: %d",
+             WIFI_AP_SSID, WIFI_AP_PASS, 1);
+             
+    // Print ESP32 IP address
+    esp_netif_ip_info_t ip_info;
+    esp_netif_get_ip_info(ap_netif, &ip_info);
+    ESP_LOGI(TAG, "AP IP地址: " IPSTR, IP2STR(&ip_info.ip));
+    
+    // 添加短暂延时，确保WiFi完全初始化
+    vTaskDelay(pdMS_TO_TICKS(500));
+}
+
+// 添加WiFi重新连接函数
+static void wifi_reconnect(void) {
+    if (wifi_reconnect_attempts >= MAX_WIFI_RECONNECT_ATTEMPTS) {
+        ESP_LOGE(TAG, "WiFi重连尝试次数已达最大值，需要重启系统");
+        esp_restart(); // 最后的方案：重启系统
+        return;
+    }
+    
+    ESP_LOGI(TAG, "尝试重新启动WiFi (尝试 %d/%d)", 
+             wifi_reconnect_attempts + 1, MAX_WIFI_RECONNECT_ATTEMPTS);
+    
+    // 停止WiFi
+    esp_wifi_stop();
+    vTaskDelay(pdMS_TO_TICKS(1000)); // 等待1秒
+    
+    // 重启WiFi
+    esp_err_t start_err = esp_wifi_start();
+    if (start_err != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi重启失败: %s", esp_err_to_name(start_err));
+    } else {
+        ESP_LOGI(TAG, "WiFi重启成功");
+    }
+    
+    wifi_reconnect_attempts++;
+    wifi_needs_reconnect = false;
+}
+
+// 初始化GPIO
+static void init_gpio(void) {
+    ESP_LOGI(TAG, "初始化GPIO");
+    
+    // 配置LED引脚
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << LED_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io_conf);
+    
+    // LED初始状态为关闭
+    gpio_set_level(LED_PIN, 0);
+}
+
+// 初始化UART用于JY901通信
+static void init_uart(void) {
+    ESP_LOGI(TAG, "初始化UART用于JY901");
+    
+    // 配置UART参数
+    uart_config_t uart_config = {
+        .baud_rate = JY901_UART_BAUD,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+    
+    // 安装UART驱动并配置
+    ESP_ERROR_CHECK(uart_driver_install(JY901_UART_PORT, JY901_BUFFER_SIZE * 2, 0, 0, NULL, 0));
+    ESP_ERROR_CHECK(uart_param_config(JY901_UART_PORT, &uart_config));
+    ESP_ERROR_CHECK(uart_set_pin(JY901_UART_PORT, JY901_TX_PIN, JY901_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+}
+
+// 修改init_pwm函数，调整PWM设置以减少与WiFi冲突
+static void init_pwm(void) {
+    ESP_LOGI(TAG, "初始化PWM舵机控制");
+    
+    // 配置LEDC定时器 - 修改为对WiFi影响更小的参数
+    ledc_timer_config_t ledc_timer = {
+        .duty_resolution = LEDC_DUTY_RES,
+        .freq_hz = LEDC_FREQUENCY,
+        .speed_mode = LEDC_MODE,
+        .timer_num = LEDC_TIMER,
+        .clk_cfg = LEDC_AUTO_CLK,
+    };
+    ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
+    
+    // 使用带错误检查的舵机初始化函数
+    esp_err_t servo_err;
+    
+    // 主动力电机 - 使用错误检查版本的初始化函数
+    servo_err = servo_setup_with_error_check(&servos[0], 50, 10, MAIN_MOTOR_CHANNEL, MAIN_MOTOR_PIN, 0);
+    if (servo_err != ESP_OK) {
+        ESP_LOGE(TAG, "主动力电机初始化失败: %s", esp_err_to_name(servo_err));
+    } else {
+        servo_set_scale(&servos[0], 1.0f);
+        servo_write(&servos[0], 0, -1, 1);
+    }
+    
+    // 方向舵机1
+    servo_err = servo_setup_with_error_check(&servos[1], 50, 10, DIRECTION_SERVO1_CHANNEL, DIRECTION_SERVO1_PIN, 0);
+    if (servo_err != ESP_OK) {
+        ESP_LOGE(TAG, "方向舵机1初始化失败: %s", esp_err_to_name(servo_err));
+    } else {
+        servo_set_scale(&servos[1], 1.5f);
+        servo_write(&servos[1], 0, -1, 1);
+    }
+    
+    // 方向舵机2
+    servo_err = servo_setup_with_error_check(&servos[2], 50, 10, DIRECTION_SERVO2_CHANNEL, DIRECTION_SERVO2_PIN, 0);
+    if (servo_err != ESP_OK) {
+        ESP_LOGE(TAG, "方向舵机2初始化失败: %s", esp_err_to_name(servo_err));
+    } else {
+        servo_set_scale(&servos[2], 1.5f);
+        servo_write(&servos[2], 0, -1, 1);
+    }
+    
+    // 方向舵机3
+    servo_err = servo_setup_with_error_check(&servos[3], 50, 10, DIRECTION_SERVO3_CHANNEL, DIRECTION_SERVO3_PIN, 0);
+    if (servo_err != ESP_OK) {
+        ESP_LOGE(TAG, "方向舵机3初始化失败: %s", esp_err_to_name(servo_err));
+    } else {
+        servo_set_scale(&servos[3], 0.8f);
+        servo_write(&servos[3], 0, -1, 1);
+    }
+    
+    // A0090全向舵机 - 使用连续旋转舵机类型
+    servo_err = servo_setup_with_error_check(&servos[4], 50, 8, STEERING_SERVO_CHANNEL, STEERING_SERVO_PIN, 1);
+    if (servo_err != ESP_OK) {
+        ESP_LOGE(TAG, "A0090舵机初始化失败: %s", esp_err_to_name(servo_err));
+    } else {
+        servo_set_scale(&servos[4], 1.0f);
+        servo_write_speed(&servos[4], 0);
+    }
+    
+    // 备用A0090全向舵机
+    servo_err = servo_setup_with_error_check(&servos[5], 50, 8, STEERING_SERVO2_CHANNEL, STEERING_SERVO2_PIN, 1);
+    if (servo_err != ESP_OK) {
+        ESP_LOGE(TAG, "备用A0090舵机初始化失败: %s", esp_err_to_name(servo_err));
+    } else {
+        servo_set_scale(&servos[5], 1.0f);
+        servo_write_speed(&servos[5], 0);
+    }
+    
+    // 等待短暂时间，让PWM稳定
+    vTaskDelay(pdMS_TO_TICKS(100));
+}
+
+// 启动Web服务器
+static httpd_handle_t start_webserver(void) {
+    httpd_handle_t server = NULL;
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.lru_purge_enable = true;
+    
+    ESP_LOGI(TAG, "Starting HTTP server, port %d", config.server_port);
+    
+    if (httpd_start(&server, &config) == ESP_OK) {
+        // 注册各个URI处理程序
+        httpd_register_uri_handler(server, &root);
+        httpd_register_uri_handler(server, &web_page);
+        httpd_register_uri_handler(server, &gyro_data);
+        httpd_register_uri_handler(server, &status);
+        httpd_register_uri_handler(server, &angle_control);
+        httpd_register_uri_handler(server, &takeoff);
+        httpd_register_uri_handler(server, &landing);
+        httpd_register_uri_handler(server, &stop);
+        return server;
+    }
+    
+    ESP_LOGE(TAG, "Failed to start HTTP server");
+    return NULL;
+}
+
+// 停止Web服务器
+static void stop_webserver(httpd_handle_t server) {
+    if (server) {
+        httpd_stop(server);
+    }
+}
+
+// 处理控制命令请求
+static esp_err_t root_handler(httpd_req_t *req) {
+    // 获取URL参数
+    char buf[100];
+    char param[32];
+    
+    int buf_len = httpd_req_get_url_query_len(req) + 1;
+    if (buf_len > 1) {
+        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+            if (httpd_query_key_value(buf, "c", param, sizeof(param)) == ESP_OK) {
+                float throttle = 0, steering = 0;
+                
+                // 解析油门和转向值
+                if (sscanf(param, "%f,%f", &throttle, &steering) == 2) {
+                    // 更新控制值
+                    rx_c1 = throttle;
+                    rx_c2 = steering;
+                    
+                    // 不在倾角控制模式时更新舵机
+                    if (!angle_control_enabled) {
+                        update_servo();
+                    }
+                    
+                    ESP_LOGI(TAG, "Received control command - Throttle: %.2f, Steering: %.2f", throttle, steering);
+                }
+            }
+        }
+    }
+    
+    // 设置响应头
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    
+    // 发送响应
+    const char *resp_str = "success";
+    httpd_resp_send(req, resp_str, strlen(resp_str));
+    
+    return ESP_OK;
+}
+
+// 发送网页
+static esp_err_t web_page_handler(httpd_req_t *req) {
+    ESP_LOGI(TAG, "Serving web page");
+    
+    // 设置响应头
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Content-Encoding", "identity");
+    
+    // 获取网页的大小
+    size_t web_pages_size = web_pages_html_end - web_pages_html_start;
+    
+    // 发送网页内容
+    httpd_resp_send(req, (const char *)web_pages_html_start, web_pages_size);
+    
+    return ESP_OK;
+}
+
+// 发送传感器数据
+static esp_err_t gyro_data_handler(httpd_req_t *req) {
+    // 创建JSON响应
+    char json[512];
+    
+    // 构建传感器数据JSON
+    snprintf(json, sizeof(json),
+             "{"
+             "\"angle\":{\"roll\":%.2f,\"pitch\":%.2f,\"yaw\":%.2f},"
+             "\"acc\":{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f},"
+             "\"gyro\":{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f},"
+             "\"mag\":{\"x\":%d,\"y\":%d,\"z\":%d},"
+             "\"control\":{\"isOutOfControl\":%s,\"reason\":\"%s\"}"
+             "}",
+             sensor_data.angle[0], sensor_data.angle[1], sensor_data.angle[2],
+             sensor_data.acc[0], sensor_data.acc[1], sensor_data.acc[2],
+             sensor_data.gyro[0], sensor_data.gyro[1], sensor_data.gyro[2],
+             sensor_data.mag[0], sensor_data.mag[1], sensor_data.mag[2],
+             is_out_of_control ? "true" : "false", out_of_control_reason);
+    
+    // 设置响应头
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+    
+    // 发送响应
+    httpd_resp_send(req, json, strlen(json));
+    
+    return ESP_OK;
+}
+
+// 处理状态请求
+static esp_err_t status_handler(httpd_req_t *req) {
+    // 返回简单的状态响应
+    const char *resp_str = "ok";
+    httpd_resp_send(req, resp_str, strlen(resp_str));
+    
+    return ESP_OK;
+}
+
+// 处理倾角控制请求
+static esp_err_t angle_control_handler(httpd_req_t *req) {
+    char buf[100];
+    char param[32];
+    
+    int buf_len = httpd_req_get_url_query_len(req) + 1;
+    if (buf_len > 1) {
+        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+            if (httpd_query_key_value(buf, "state", param, sizeof(param)) == ESP_OK) {
+                if (strcmp(param, "on") == 0) {
+                    // 先关闭其他模式
+                    is_taking_off = false;
+                    is_landing = false;
+                    
+                    // 停止A0090舵机
+                    servo_write_speed(&servos[4], 0);
+                    servo_write_speed(&servos[5], 0);
+                    
+                    // 启用姿态控制
+                    angle_control_enabled = true;
+                    ESP_LOGI(TAG, "Angle control enabled");
+                    httpd_resp_send(req, "Angle control enabled", HTTPD_RESP_USE_STRLEN);
+                    return ESP_OK;
+                }
+                else if (strcmp(param, "off") == 0) {
+                    angle_control_enabled = false;
+                    rx_c1 = 0; // Stop motor
+                    rx_c2 = 0; // Center steering
+                    
+                    // Stop A0090 servos
+                    servo_write_speed(&servos[4], 0);
+                    servo_write_speed(&servos[5], 0);
+                    
+                    update_servo();
+                    ESP_LOGI(TAG, "Angle control disabled");
+                    httpd_resp_send(req, "Angle control disabled", HTTPD_RESP_USE_STRLEN);
+                    return ESP_OK;
+                }
+            }
+        }
+    }
+    
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid request");
+    return ESP_FAIL;
+}
+
+// 处理起飞请求
+static esp_err_t takeoff_handler(httpd_req_t *req) {
+    ESP_LOGI(TAG, "Executing takeoff command");
+    
+    // 设置主动力舵机最大值
+    rx_c1 = 100; // 最大值
+    
+    // 设置转向舵机值
+    rx_c2 = 100; // 最大值
+    
+    // A0090舵机先停止，再反方向旋转
+    servo_write_speed(&servos[4], 0);
+    servo_write_speed(&servos[5], 0);
+    vTaskDelay(pdMS_TO_TICKS(100)); // 短暂延迟确保停止
+    
+    // 短暂反方向旋转到位置后停止
+    servo_write_speed(&servos[4], -70); // 以70%速度反方向转动
+    servo_write_speed(&servos[5], -70); // 以70%速度反方向转动
+    vTaskDelay(pdMS_TO_TICKS(500)); // 旋转500ms
+    servo_write_speed(&servos[4], 0);  // 停止
+    servo_write_speed(&servos[5], 0);  // 停止
+    
+    // 设置起飞状态
+    is_taking_off = true;
+    
+    // 立即更新舵机
+    update_servo();
+    
+    httpd_resp_send(req, "Takeoff command executed", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+// 处理降落请求
+static esp_err_t landing_handler(httpd_req_t *req) {
+    ESP_LOGI(TAG, "Executing landing command");
+    
+    // 设置主动力舵机最小值
+    rx_c1 = -100; // 最小值
+    
+    // 设置转向舵机值
+    rx_c2 = -100; // 最小值
+    
+    // A0090舵机先停止，再正方向旋转
+    servo_write_speed(&servos[4], 0);
+    servo_write_speed(&servos[5], 0);
+    vTaskDelay(pdMS_TO_TICKS(100)); // 短暂延迟确保停止
+    
+    // 短暂正方向旋转到位置后停止
+    servo_write_speed(&servos[4], 70); // 以70%速度正方向转动
+    servo_write_speed(&servos[5], 70); // 以70%速度正方向转动
+    vTaskDelay(pdMS_TO_TICKS(500)); // 旋转500ms
+    servo_write_speed(&servos[4], 0);  // 停止
+    servo_write_speed(&servos[5], 0);  // 停止
+    
+    // 重置起飞状态
+    is_taking_off = false;
+    
+    // 设置降落状态
+    is_landing = true;
+    
+    // 立即更新舵机
+    update_servo();
+    
+    httpd_resp_send(req, "Landing command executed", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+// 处理停止请求
+static esp_err_t stop_handler(httpd_req_t *req) {
+    ESP_LOGI(TAG, "Executing stop command");
+    
+    // 将所有控制回到中立位置
+    rx_c1 = 0;
+    rx_c2 = 0;
+    
+    // 重置状态标志
+    is_taking_off = false;
+    is_landing = false;
+    angle_control_enabled = false; // 确保姿态控制也被关闭
+    
+    // A0090舵机停止
+    servo_write_speed(&servos[4], 0);
+    servo_write_speed(&servos[5], 0);
+    
+    // 立即更新舵机
+    update_servo();
+    
+    httpd_resp_send(req, "Control stopped", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+// 舵机初始化函数
+static void servo_setup(ledc_servo_t *servo, float freq, int resolution, 
+                    ledc_channel_t channel, int gpio_pin, int servo_type) {
+    servo->freq = freq;
+    servo->resolution = resolution;
+    servo->pwm_base_scale = freq * (1 << resolution) / 1000.0f;
+    servo->pwm_min = 1.0f * servo->pwm_base_scale;
+    servo->pwm_max = 2.0f * servo->pwm_base_scale;
+    servo->channel = channel;
+    servo->type = servo_type;
+    servo->scale = 1.0f;
+    servo->gpio_pin = gpio_pin;
+
+    // 配置LEDC通道
+    ledc_channel_config_t ledc_channel = {
+        .gpio_num       = gpio_pin,
+        .speed_mode     = LEDC_MODE,
+        .channel        = channel,
+        .intr_type      = LEDC_INTR_DISABLE,
+        .timer_sel      = LEDC_TIMER,
+        .duty           = 0,
+        .hpoint         = 0,
+    };
+    ledc_channel_config(&ledc_channel);
+}
+
+// 设置舵机缩放比例
+static void servo_set_scale(ledc_servo_t *servo, float scale) {
+    if (scale <= 0 || scale > 2.0f) {
+        ESP_LOGE(TAG, "Servo scale error: %f", scale);
+        return;
+    }
+    
+    servo->scale = scale;
+    servo->pwm_min = (1.5f - scale * 0.5f) * servo->pwm_base_scale;
+    servo->pwm_max = (1.5f + scale * 0.5f) * servo->pwm_base_scale;
+}
+
+// 设置舵机位置
+static void servo_write(ledc_servo_t *servo, float value, float min, float max) {
+    float new_value = value;
+    if (max > min) {
+        if (value > max) new_value = max;
+        if (value < min) new_value = min;
+    } else {
+        if (value > min) new_value = min;
+        if (value < max) new_value = max;
+    }
+    
+    uint32_t duty = (uint32_t)map_float(new_value, min, max, servo->pwm_min, servo->pwm_max);
+    ledc_set_duty(LEDC_MODE, servo->channel, duty);
+    ledc_update_duty(LEDC_MODE, servo->channel);
+}
+
+// 写入连续旋转舵机的速度
+static void servo_write_speed(ledc_servo_t *servo, float speed) {
+    // 对于连续旋转舵机，中值(1.5ms)停止，大于中值正转，小于中值反转
+    float stop_pwm = 1.5f * servo->pwm_base_scale;
+    
+    // 限制速度范围在-100到100之间
+    if (speed > 100.0f) speed = 100.0f;
+    if (speed < -100.0f) speed = -100.0f;
+    
+    // 如果接近零则完全停止
+    if (fabs(speed) < 5.0f) {
+        ledc_set_duty(LEDC_MODE, servo->channel, (uint32_t)stop_pwm);
+        ledc_update_duty(LEDC_MODE, servo->channel);
+        return;
+    }
+    
+    // 计算PWM值，speed范围为-100到100
+    uint32_t pwm_value;
+    if (speed > 0) {
+        // 正转：1.5ms到2.0ms
+        pwm_value = (uint32_t)map_float(speed, 0, 100, stop_pwm, servo->pwm_max);
+    } else {
+        // 反转：1.5ms到1.0ms
+        pwm_value = (uint32_t)map_float(speed, -100, 0, servo->pwm_min, stop_pwm);
+    }
+    
+    ledc_set_duty(LEDC_MODE, servo->channel, pwm_value);
+    ledc_update_duty(LEDC_MODE, servo->channel);
+}
+
+// 更新舵机位置
+static void update_servo(void) {
+    // 设置死区值为±20
+    const float deadzone = 20.0f;
+
+    // 油门舵机
+    if (fabsf(last_rx_c1 - rx_c1) > deadzone) {
+        // 对于超出死区的值，进行映射处理
+        float mapped_throttle = rx_c1;
+        if (fabsf(rx_c1) <= deadzone) {
+            mapped_throttle = 0; // 在死区内的值归零
+        } else if (rx_c1 > deadzone) {
+            // 将大于死区的值映射到0-100范围，并反转方向
+            mapped_throttle = map_float(rx_c1, deadzone, 100, 0, -100);
+        } else {
+            // 将小于-死区的值映射到-100-0范围，并反转方向
+            mapped_throttle = map_float(rx_c1, -100, -deadzone, 100, 0);
+        }
+
+        // 更新动力电机和方向舵机1
+        servo_write(&servos[0], mapped_throttle, 100, -100);
+        servo_write(&servos[1], mapped_throttle, 100, -100);
+        last_rx_c1 = rx_c1;
+    }
+
+    // 转向舵机
+    if (fabsf(last_rx_c2 - rx_c2) > deadzone) {
+        // 对于超出死区的值，进行映射处理
+        float mapped_steering = rx_c2;
+        if (fabsf(rx_c2) <= deadzone) {
+            mapped_steering = 0; // 在死区内的值归零
+        } else if (rx_c2 > deadzone) {
+            // 将大于死区的值映射到0-100范围
+            mapped_steering = map_float(rx_c2, deadzone, 100, 0, 100);
+        } else {
+            // 将小于-死区的值映射到-100-0范围
+            mapped_steering = map_float(rx_c2, -100, -deadzone, -100, 0);
+        }
+
+        // 更新方向舵机2和3
+        servo_write(&servos[2], mapped_steering, 100, -100);
+        servo_write(&servos[3], mapped_steering, 100, -100);
+        last_rx_c2 = rx_c2;
+    }
+}
+
+// 解析JY901传感器数据
+static void parse_jy901_data(void) {
+    // JY901数据格式: 0x55 + ID + DATA(5bytes)
+    // 数据帧长度固定为11字节
+    for (int i = 0; i < jy901_rx_count; i++) {
+        if (jy901_rx_buffer[i] == 0x55 && i + 10 < jy901_rx_count) {
+            switch (jy901_rx_buffer[i+1]) {
+                case 0x51: // 加速度数据
+                    sensor_data.acc[0] = ((short)(jy901_rx_buffer[i+3]<<8 | jy901_rx_buffer[i+2])) / 32768.0f * 16;
+                    sensor_data.acc[1] = ((short)(jy901_rx_buffer[i+5]<<8 | jy901_rx_buffer[i+4])) / 32768.0f * 16;
+                    sensor_data.acc[2] = ((short)(jy901_rx_buffer[i+7]<<8 | jy901_rx_buffer[i+6])) / 32768.0f * 16;
+                    break;
+                case 0x52: // 角速度数据
+                    sensor_data.gyro[0] = ((short)(jy901_rx_buffer[i+3]<<8 | jy901_rx_buffer[i+2])) / 32768.0f * 2000;
+                    sensor_data.gyro[1] = ((short)(jy901_rx_buffer[i+5]<<8 | jy901_rx_buffer[i+4])) / 32768.0f * 2000;
+                    sensor_data.gyro[2] = ((short)(jy901_rx_buffer[i+7]<<8 | jy901_rx_buffer[i+6])) / 32768.0f * 2000;
+                    break;
+                case 0x53: // 角度数据
+                    sensor_data.angle[0] = ((short)(jy901_rx_buffer[i+3]<<8 | jy901_rx_buffer[i+2])) / 32768.0f * 180;
+                    sensor_data.angle[1] = ((short)(jy901_rx_buffer[i+5]<<8 | jy901_rx_buffer[i+4])) / 32768.0f * 180;
+                    sensor_data.angle[2] = ((short)(jy901_rx_buffer[i+7]<<8 | jy901_rx_buffer[i+6])) / 32768.0f * 180;
+                    break;
+                case 0x54: // 磁场数据
+                    sensor_data.mag[0] = ((short)(jy901_rx_buffer[i+3]<<8 | jy901_rx_buffer[i+2]));
+                    sensor_data.mag[1] = ((short)(jy901_rx_buffer[i+5]<<8 | jy901_rx_buffer[i+4]));
+                    sensor_data.mag[2] = ((short)(jy901_rx_buffer[i+7]<<8 | jy901_rx_buffer[i+6]));
+                    break;
+            }
+        }
+    }
+    
+    // 清空缓冲区
+    if (jy901_rx_count > 100) jy901_rx_count = 0;
+}
+
+// 处理JY901数据的任务
+static void jy901_sensor_task(void *pvParameters) {
+    ESP_LOGI(TAG, "JY901 sensor task started");
+    
+    // 标记上次打印时间
+    int64_t last_print_time = esp_timer_get_time();
+    
+    while (1) {
+        // 获取UART接收到的数据
+        size_t buffered_size;
+        if (uart_get_buffered_data_len(JY901_UART_PORT, &buffered_size) == ESP_OK) {
+            if (buffered_size > 0) {
+                // 读取数据到缓冲区
+                int len = uart_read_bytes(JY901_UART_PORT, jy901_rx_buffer + jy901_rx_count, 
+                                        buffered_size, portMAX_DELAY);
+                jy901_rx_count += len;
+                
+                // 解析JY901数据
+                parse_jy901_data();
+                
+                // 更新滤波后的角度数据
+                filtered_ax = sensor_data.angle[0]; // Roll angle (绕X轴)
+                filtered_ay = sensor_data.angle[1]; // Pitch angle (绕Y轴)
+                filtered_az = sensor_data.angle[2]; // Yaw angle (绕Z轴)
+                
+                // 每秒打印一次当前角度
+                int64_t now = esp_timer_get_time();
+                if (now - last_print_time > 1000000) { // 1秒 = 1000000微秒
+                    last_print_time = now;
+                    ESP_LOGI(TAG, "JY901 angles - Roll(X): %.2f Pitch(Y): %.2f Yaw(Z): %.2f",
+                            filtered_ax, filtered_ay, filtered_az);
+                }
+            }
+        }
+        
+        // 防止任务过度消耗CPU
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+// 创建PID控制器实例
+static pid_controller_t throttle_pid;
+static pid_controller_t steering_pid;
+
+// 当前实际值
+static float current_throttle = 0;
+static float current_steering = 0;
+
+// 处理角度控制
+static void handle_angle_control(void) {
+    // 如果倾角控制未启用，直接返回
+    if (!angle_control_enabled) {
+        return;
+    }
+
+    // Debug output
+    ESP_LOGI(TAG, "Angle control active - Roll(X): %.2f Pitch(Y): %.2f Yaw(Z): %.2f",
+            filtered_ax, filtered_ay, filtered_az);
+
+    // 获取当前Roll角和Pitch角
+    float current_roll = filtered_ax;
+    float current_pitch = filtered_ay;
+    bool was_out_of_control = is_out_of_control; // 保存之前的失控状态
+    is_out_of_control = false; // 重置失控状态，由下面的逻辑决定是否设为失控
+    
+    // 处理Roll角度 (0-90度) 控制无刷电机
+    if (current_roll >= 0 && current_roll <= 90) {
+        // Roll in normal range, use PID control brushless motor
+        // Map angle to target value
+        float target_speed = map_float(current_roll, 0, 90, -50, 100);
+        
+        // Use PID to calculate throttle value
+        float control_output = pid_compute(&throttle_pid, target_speed, current_throttle);
+        rx_c1 = control_output;
+        
+        // Update current actual value for next PID calculation
+        current_throttle = rx_c1;
+        
+        ESP_LOGI(TAG, "Roll in normal range, PID throttle control: %.2f", rx_c1);
+    }
+    else {
+        // Roll angle out of range, stop motor and mark as out of control
+        rx_c1 = 0;
+        is_out_of_control = true;
+        strcpy(out_of_control_reason, "Roll angle out of range (0-90°)");
+        ESP_LOGW(TAG, "Warning: Roll angle out of range, motor stopped");
+        
+        // Reset PID controller to prevent integral term accumulation
+        pid_reset(&throttle_pid);
+        current_throttle = 0;
+    }
+
+    // 处理Pitch角度 (-45到45度) 控制舵机
+    if (current_pitch >= -45 && current_pitch <= 45) {
+        // Pitch in normal range, control servo
+        // Map Pitch angle to servo control range
+        rx_c2 = map_float(current_pitch, -45, 45, -100, 100);
+        
+        // Control A0090 servo - direction opposite to main servo
+        float servo_speed = map_float(current_pitch, -45, 45, 70, -70);
+        servo_write_speed(&servos[4], servo_speed);
+        servo_write_speed(&servos[5], servo_speed);
+        
+        // Update current actual value
+        current_steering = rx_c2;
+        
+        ESP_LOGI(TAG, "Pitch in normal range, setting servo value: %.2f", rx_c2);
+    }
+    else {
+        // Pitch angle out of range, center servo and mark as out of control
+        rx_c2 = 0;
+        servo_write_speed(&servos[4], 0);
+        servo_write_speed(&servos[5], 0);
+        is_out_of_control = true;
+        strcpy(out_of_control_reason, "Pitch angle out of range (-45° to 45°)");
+        ESP_LOGW(TAG, "Warning: Pitch angle out of range, servos centered");
+        
+        // Reset servo control related variables
+        pid_reset(&steering_pid);
+        current_steering = 0;
+    }
+
+    // If out of control state changes, output log
+    if (is_out_of_control != was_out_of_control) {
+        if (is_out_of_control) {
+            ESP_LOGW(TAG, "Warning: System out of control! Reason: %s", out_of_control_reason);
+        }
+        else {
+            ESP_LOGI(TAG, "System returned to normal control");
+        }
+    }
+
+    // Update all servos
+    update_servo();
+}
+
+// Main application function
+void app_main(void)
+{
+    ESP_LOGI(TAG, "系统启动");
+    
+    // Initialize NVS
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+      ESP_ERROR_CHECK(nvs_flash_erase());
+      ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+    
+    // Initialize hardware components
+    init_gpio();
+    init_uart();
+    
+    // 先初始化WiFi，再初始化PWM，减少启动时的资源争用
+    wifi_init_softap();
+    
+    // 增加延时，确保WiFi初始化完成
+    vTaskDelay(pdMS_TO_TICKS(200));
+    
+    // 然后初始化PWM
+    init_pwm();
+    
+    // Initialize PID controllers
+    pid_init(&throttle_pid, 4.0f, 0.2f, 0.1f, -100.0f, 100.0f);  // Throttle PID
+    pid_init(&steering_pid, 3.0f, 0.1f, 0.05f, -100.0f, 100.0f); // Steering PID
+    
+    // 增加任务栈空间，提高稳定性
+    xTaskCreate(jy901_sensor_task, "jy901_task", 4096, NULL, 5, &sensor_task_handle);
+    xTaskCreate(control_task, "control_task", 8192, NULL, 5, &control_task_handle);
+    
+    // Start web server
+    server = start_webserver();
+    
+    ESP_LOGI(TAG, "系统初始化完成");
+}
+
+static void pid_init(pid_controller_t *pid, float p, float i, float d, float min, float max) {
+    pid->kp = p;
+    pid->ki = i;
+    pid->kd = d;
+    pid->last_error = 0;
+    pid->integral = 0;
+    pid->output_min = min;
+    pid->output_max = max;
+    pid->last_time = 0;
+}
+
+static float pid_compute(pid_controller_t *pid, float setpoint, float input) {
+    int64_t now = esp_timer_get_time();
+    float dt = (now - pid->last_time) / 1000000.0f; // 转换为秒
+    if (pid->last_time == 0) {
+        dt = 0;
+    }
+    pid->last_time = now;
+
+    // 计算误差
+    float error = setpoint - input;
+
+    // 积分项
+    pid->integral += error * dt;
+
+    // 限制积分范围，防积分饱和
+    if (pid->integral > pid->output_max / pid->ki) {
+        pid->integral = pid->output_max / pid->ki;
+    } else if (pid->integral < pid->output_min / pid->ki) {
+        pid->integral = pid->output_min / pid->ki;
+    }
+
+    // 微分项
+    float derivative = dt > 0 ? (error - pid->last_error) / dt : 0;
+    pid->last_error = error;
+
+    // 计算输出
+    float output = pid->kp * error + pid->ki * pid->integral + pid->kd * derivative;
+
+    // 限制输出范围
+    if (output > pid->output_max) {
+        output = pid->output_max;
+    } else if (output < pid->output_min) {
+        output = pid->output_min;
+    }
+    
+    return output;
+}
+
+static void pid_reset(pid_controller_t *pid) {
+    pid->last_error = 0;
+    pid->integral = 0;
+    pid->last_time = 0;
+}
+
+static esp_err_t servo_setup_with_error_check(ledc_servo_t *servo, float freq, int resolution, 
+                    ledc_channel_t channel, int gpio_pin, int servo_type) {
+    servo->freq = freq;
+    servo->resolution = resolution;
+    servo->pwm_base_scale = freq * (1 << resolution) / 1000.0f;
+    servo->pwm_min = 1.0f * servo->pwm_base_scale;
+    servo->pwm_max = 2.0f * servo->pwm_base_scale;
+    servo->channel = channel;
+    servo->type = servo_type;
+    servo->scale = 1.0f;
+    servo->gpio_pin = gpio_pin;
+
+    // Configure LEDC channel
+    ledc_channel_config_t ledc_channel = {
+        .gpio_num       = gpio_pin,
+        .speed_mode     = LEDC_MODE,
+        .channel        = channel,
+        .intr_type      = LEDC_INTR_DISABLE,
+        .timer_sel      = LEDC_TIMER,
+        .duty           = 0,
+        .hpoint         = 0,
+    };
+    
+    esp_err_t ret = ledc_channel_config(&ledc_channel);
+    return ret;
+}
+
+// 修改control_task添加WiFi监控逻辑
+static void control_task(void *pvParameters) {
+    ESP_LOGI(TAG, "控制任务启动");
+    
+    // 上次检查舵机的时间
+    int64_t last_servo_check_time = esp_timer_get_time();
+    int64_t last_landing_update_time = esp_timer_get_time();
+    last_wifi_check_time = esp_timer_get_time();
+    
+    while (1) {
+        // 如果开启了倾角控制，处理倾角控制
+        if (angle_control_enabled) {
+            handle_angle_control();
+        }
+        
+        // 处理降落时的减速操作
+        if (is_landing) {
+            int64_t now = esp_timer_get_time();
+            if (now - last_landing_update_time > 50000) { // 50ms = 50000微秒
+                // 如果油门值大于-100，逐渐减小值（减速）
+                if (rx_c1 > -100) {
+                    rx_c1 -= 5; // 每次减少5
+                    if (rx_c1 < -100) rx_c1 = -100;
+                    
+                    // 更新舵机
+                    update_servo();
+                    last_landing_update_time = now;
+                    
+                    ESP_LOGI(TAG, "Landing deceleration: %.2f", rx_c1);
+                } else {
+                    // Reached stop state, turn off landing mode
+                    is_landing = false;
+                    ESP_LOGI(TAG, "Landing completed");
+                }
+            }
+        }
+        
+        // 定期检查A0090舵机状态，防止随机转动
+        int64_t now = esp_timer_get_time();
+        
+        // 添加WiFi监控和重连逻辑
+        if (now - last_wifi_check_time > WIFI_RECONNECT_INTERVAL) {
+            last_wifi_check_time = now;
+            
+            // 检查WiFi状态
+            wifi_ap_record_t ap_info;
+            wifi_sta_list_t sta_list;
+            
+            // 检查AP模式下的连接数量
+            esp_err_t err = esp_wifi_ap_get_sta_list(&sta_list);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "无法获取连接的站点列表: %s", esp_err_to_name(err));
+                wifi_needs_reconnect = true;
+            } else {
+                ESP_LOGI(TAG, "当前连接的设备数: %d", sta_list.num);
+                if (wifi_reconnect_attempts > 0 && sta_list.num > 0) {
+                    // 如果之前有问题但现在连接恢复，重置尝试次数
+                    wifi_reconnect_attempts = 0;
+                    ESP_LOGI(TAG, "WiFi连接恢复正常");
+                }
+            }
+            
+            // 如果需要重连WiFi
+            if (wifi_needs_reconnect) {
+                wifi_reconnect();
+            }
+        }
+        
+        // 控制LED以指示系统状态
+        static bool led_state = false;
+        static int blink_counter = 0;
+        
+        blink_counter++;
+        if (blink_counter >= 50) { // 约1秒钟翻转一次
+            led_state = !led_state;
+            gpio_set_level(LED_PIN, led_state);
+            blink_counter = 0;
+            
+            // 检查连接状态
+            if (is_out_of_control) {
+                ESP_LOGW(TAG, "System out of control: %s", out_of_control_reason);
+            }
+        }
+        
+        // 防止任务过度消耗CPU
+        vTaskDelay(pdMS_TO_TICKS(20)); // 20毫秒检查一次
+    }
+} 
