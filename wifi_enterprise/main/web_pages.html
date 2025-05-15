@@ -9,7 +9,8 @@
   <style>
     /* 设计系统样式 */
     :root {
-      --primary-color: #007AFF;
+      --primary-color: #4158D0;
+      --primary-gradient: linear-gradient(43deg, #4158D0 0%, #C850C0 46%, #FFCC70 100%);
       --secondary-color: #5AC8FA;
       --success-color: #34C759;
       --warning-color: #FF9500;
@@ -28,7 +29,7 @@
       --border-radius: 12px;
       --section-border-radius: 20px;
       --shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-      --card-shadow: 0 2px 14px rgba(0, 0, 0, 0.06);
+      --card-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
     }
     
     @media (prefers-color-scheme: dark) {
@@ -39,7 +40,7 @@
         --text-secondary: #EBEBF599;
         --text-tertiary: #EBEBF566;
         --shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-        --card-shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
+        --card-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
       }
     }
 
@@ -92,15 +93,18 @@
     }
     
     .status-indicator {
-      width: 10px;
-      height: 10px;
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
       background-color: var(--danger-color);
       margin-left: auto;
+      transition: all 0.3s ease;
+      box-shadow: 0 0 8px rgba(255, 59, 48, 0.6);
     }
 
     .status-indicator.connected {
       background-color: var(--success-color);
+      box-shadow: 0 0 8px rgba(52, 199, 89, 0.6);
     }
 
     .section {
@@ -109,6 +113,12 @@
       overflow: hidden;
       background-color: var(--card-background);
       box-shadow: var(--card-shadow);
+      transition: all 0.3s ease;
+    }
+
+    .section:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow);
     }
 
     .section-header {
@@ -136,6 +146,11 @@
       border-radius: var(--border-radius);
       padding: 16px;
       overflow: hidden;
+      transition: all 0.2s ease;
+    }
+
+    .sensor-group:hover {
+      transform: scale(1.02);
     }
 
     .sensor-group h3 {
@@ -175,10 +190,10 @@
     }
 
     .joystick-container {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 16px;
-      padding: 16px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 24px 16px;
     }
 
     .joystick-wrapper {
@@ -188,32 +203,46 @@
     }
 
     .joystick {
-      width: 140px;
-      height: 140px;
-      background: var(--gray-6);
+      width: 200px;
+      height: 200px;
+      background: var(--primary-gradient);
       border-radius: 50%;
       position: relative;
-      border: 2px solid var(--gray-4);
+      border: 3px solid rgba(255, 255, 255, 0.2);
       overflow: hidden;
       touch-action: none;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+      transition: all 0.3s ease;
+    }
+
+    .joystick::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 70%);
+      z-index: 1;
     }
 
     .joystick::after {
       content: '';
       position: absolute;
-      width: 2px;
-      height: 2px;
-      background-color: var(--gray-3);
+      width: 4px;
+      height: 4px;
+      background-color: rgba(255, 255, 255, 0.8);
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
       border-radius: 50%;
+      box-shadow: 0 0 5px rgba(255, 255, 255, 0.6);
     }
 
     .joystick .handle {
-      width: 50px;
-      height: 50px;
-      background: var(--primary-color);
+      width: 60px;
+      height: 60px;
+      background: #fff;
       border-radius: 50%;
       position: absolute;
       top: 50%;
@@ -221,14 +250,27 @@
       transform: translate(-50%, -50%);
       cursor: pointer;
       transition: box-shadow 0.2s;
-      box-shadow: 0 4px 12px rgba(0, 122, 255, 0.4);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      z-index: 2;
+    }
+
+    .joystick .handle::after {
+      content: '';
+      position: absolute;
+      width: 40px;
+      height: 40px;
+      top: 10px;
+      left: 10px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(65, 88, 208, 0.3) 0%, rgba(65, 88, 208, 0) 70%);
     }
 
     .joystick-label {
-      margin-top: 12px;
-      font-size: 16px;
-      font-weight: 500;
+      margin-top: 16px;
+      font-size: 18px;
+      font-weight: 600;
       color: var(--text-secondary);
+      text-align: center;
     }
 
     .control-panel {
@@ -312,7 +354,7 @@
     }
 
     .button {
-      padding: 14px 0;
+      padding: 16px 0;
       border-radius: var(--border-radius);
       font-size: 16px;
       font-weight: 600;
@@ -325,17 +367,17 @@
 
     .button-primary {
       background-color: var(--primary-color);
-      box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2);
+      box-shadow: 0 4px 12px rgba(65, 88, 208, 0.3);
     }
 
     .button-success {
       background-color: var(--success-color);
-      box-shadow: 0 4px 12px rgba(52, 199, 89, 0.2);
+      box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3);
     }
 
     .button-danger {
       background-color: var(--danger-color);
-      box-shadow: 0 4px 12px rgba(255, 59, 48, 0.2);
+      box-shadow: 0 4px 12px rgba(255, 59, 48, 0.3);
     }
 
     .button:active {
@@ -347,7 +389,7 @@
       padding: 16px;
       display: grid;
       grid-template-columns: repeat(2, 1fr);
-      gap: 12px;
+      gap: 16px;
     }
 
     .data-card {
@@ -356,6 +398,12 @@
       padding: 16px;
       display: flex;
       flex-direction: column;
+      transition: all 0.2s ease;
+    }
+
+    .data-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
     }
 
     .data-label {
@@ -379,7 +427,7 @@
     .model-3d {
       width: 160px;
       height: 160px;
-      background-color: var(--gray-6);
+      background-color: rgba(65, 88, 208, 0.1);
       margin: 16px auto;
       position: relative;
       transform-style: preserve-3d;
@@ -443,7 +491,7 @@
     
     /* 添加失控警告样式 */
     .alert-container {
-      margin-top: 16px;
+      margin: 0 16px;
       overflow: hidden;
       max-height: 0;
       transition: max-height 0.3s ease-out;
@@ -451,6 +499,7 @@
     
     .alert-container.active {
       max-height: 80px;
+      margin-bottom: 20px;
     }
     
     .alert {
@@ -484,6 +533,254 @@
     
     .alert.pulse {
       animation: pulse 0.8s infinite;
+    }
+
+    /* 新增控制指示线 */
+    .joystick .control-lines {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .joystick .horizontal-line, .joystick .vertical-line {
+      position: absolute;
+      background-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .joystick .horizontal-line {
+      height: 2px;
+      width: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .joystick .vertical-line {
+      width: 2px;
+      height: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    /* 方向指示器 */
+    .direction-indicators {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .direction-indicator {
+      position: absolute;
+      font-size: 12px;
+      font-weight: 700;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .direction-up {
+      top: 15px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    .direction-down {
+      bottom: 15px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    .direction-left {
+      left: 15px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .direction-right {
+      right: 15px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    /* Add CSS for toggle switch */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 24px;
+    }
+    
+    .switch input { 
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 24px;
+    }
+    
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    
+    input:checked + .slider {
+      background-color: var(--success-color);
+    }
+    
+    input:focus + .slider {
+      box-shadow: 0 0 1px var(--success-color);
+    }
+    
+    input:checked + .slider:before {
+      transform: translateX(26px);
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f0f0f0;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+    .status-box {
+      background-color: #fff;
+      border-radius: 5px;
+      padding: 10px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      display: flex;
+      justify-content: space-between;
+    }
+    .control-box {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    .control-panel {
+      flex: 1;
+      background-color: #fff;
+      border-radius: 5px;
+      padding: 15px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+    }
+    .attitude-display {
+      flex: 1;
+      background-color: #fff;
+      border-radius: 5px;
+      padding: 15px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+    }
+    .joystick-container {
+      width: 100%;
+      height: 250px;
+      position: relative;
+      margin-bottom: 15px;
+    }
+    .buttons {
+      display: flex;
+      justify-content: space-between;
+    }
+    button {
+      padding: 8px 15px;
+      border: none;
+      border-radius: 4px;
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    #attitudeBox {
+      width: 100%;
+      height: 200px;
+      border: 1px solid #ddd;
+      background-color: #f9f9f9;
+      margin-bottom: 10px;
+    }
+    .attitude-values {
+      display: flex;
+      justify-content: space-between;
+    }
+    
+    /* PWM测试工具样式 */
+    .test-tools {
+      background-color: #fff;
+      border-radius: 5px;
+      padding: 15px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      margin-top: 20px;
+    }
+    .test-tools h2 {
+      margin-top: 0;
+      color: #333;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 10px;
+    }
+    .pwm-test, .pin-pwm-test {
+      margin-bottom: 20px;
+      padding: 15px;
+      background-color: #f9f9f9;
+      border-radius: 4px;
+    }
+    .pin-pwm-test h3 {
+      margin-top: 0;
+      color: #444;
+    }
+    .pwm-item {
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+    }
+    .pwm-item label {
+      width: 150px;
+      margin-right: 10px;
+    }
+    .pwm-item input, .pwm-item select {
+      flex: 1;
+      padding: 5px;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+    }
+    .result {
+      margin-top: 10px;
+      padding: 8px;
+      background-color: #e8f5e9;
+      color: #2e7d32;
+      border-radius: 3px;
+      min-height: 20px;
     }
   </style>
 </head>
@@ -614,23 +911,27 @@
       </div>
     </div>
 
-    <!-- 遥感控制 -->
+    <!-- 遥感控制 - 整合为一个 -->
     <div class="section">
       <div class="section-header">
         <h2>遥感控制</h2>
       </div>
       <div class="joystick-container">
         <div class="joystick-wrapper">
-          <div class="joystick" id="joystick1">
+          <div class="joystick" id="joystick">
+            <div class="control-lines">
+              <div class="horizontal-line"></div>
+              <div class="vertical-line"></div>
+            </div>
+            <div class="direction-indicators">
+              <div class="direction-indicator direction-up">油门+</div>
+              <div class="direction-indicator direction-down">油门-</div>
+              <div class="direction-indicator direction-left">左转</div>
+              <div class="direction-indicator direction-right">右转</div>
+            </div>
             <div class="handle"></div>
           </div>
-          <div class="joystick-label">油门</div>
-        </div>
-        <div class="joystick-wrapper">
-          <div class="joystick" id="joystick2">
-            <div class="handle"></div>
-          </div>
-          <div class="joystick-label">转向</div>
+          <div class="joystick-label">综合控制</div>
         </div>
       </div>
     </div>
@@ -655,6 +956,87 @@
         </div>
       </div>
     </div>
+
+    <!-- Add settings section with verbose logging toggle -->
+    <div class="section">
+      <div class="section-header">
+        <h2>Settings</h2>
+      </div>
+      <div class="settings-content" style="padding: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <label for="verboseLogging" style="font-size: 16px;">Verbose Logging</label>
+          <label class="switch">
+            <input type="checkbox" id="verboseLogging" checked>
+            <span class="slider round"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加PWM测试工具 -->
+    <div class="test-tools">
+      <h2>PWM测试工具</h2>
+      <div class="pwm-test">
+        <div class="pwm-item">
+          <label for="pwmChannel">通道:</label>
+          <select id="pwmChannel">
+            <option value="0">通道0 (3号引脚)</option>
+            <option value="1">通道1 (4号引脚)</option>
+            <option value="2">通道2 (5号引脚)</option>
+            <option value="3">通道3 (1号引脚)</option>
+          </select>
+        </div>
+        <div class="pwm-item">
+          <label for="pwmDuty">占空比 (0-8191):</label>
+          <input type="number" id="pwmDuty" min="0" max="8191" value="4096">
+        </div>
+        <button id="setPwmBtn">设置PWM</button>
+      </div>
+      
+      <!-- 添加对特定引脚的PWM测试 -->
+      <div class="pin-pwm-test">
+        <h3>引脚13 PWM测试 (GPIO 13)</h3>
+        <div class="pwm-item">
+          <label for="pin13Duty">占空比 (0-8191):</label>
+          <input type="number" id="pin13Duty" min="0" max="8191" value="4096">
+        </div>
+        <button id="setPin13Btn">设置引脚13 PWM</button>
+        <div id="pin13Result" class="result"></div>
+      </div>
+      
+      <!-- 新增引脚12 PWM测试 -->
+      <div class="pin-pwm-test">
+        <h3>引脚12 PWM测试 (GPIO 12)</h3>
+        <div class="pwm-item">
+          <label for="pin12Duty">占空比 (0-8191):</label>
+          <input type="number" id="pin12Duty" min="0" max="8191" value="4096">
+        </div>
+        <button id="setPin12Btn">设置引脚12 PWM</button>
+        <div id="pin12Result" class="result"></div>
+      </div>
+      
+      <!-- 新增引脚11 PWM测试 -->
+      <div class="pin-pwm-test">
+        <h3>引脚11 PWM测试 (GPIO 11)</h3>
+        <div class="pwm-item">
+          <label for="pin11Duty">占空比 (0-8191):</label>
+          <input type="number" id="pin11Duty" min="0" max="8191" value="4096">
+        </div>
+        <button id="setPin11Btn">设置引脚11 PWM</button>
+        <div id="pin11Result" class="result"></div>
+      </div>
+      
+      <!-- 新增引脚10 PWM测试 -->
+      <div class="pin-pwm-test">
+        <h3>引脚10 PWM测试 (GPIO 10)</h3>
+        <div class="pwm-item">
+          <label for="pin10Duty">占空比 (0-8191):</label>
+          <input type="number" id="pin10Duty" min="0" max="8191" value="4096">
+        </div>
+        <button id="setPin10Btn">设置引脚10 PWM</button>
+        <div id="pin10Result" class="result"></div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -670,10 +1052,8 @@
     const model3D = document.getElementById('model3D');
     
     // 遥感元素
-    const joystick1 = document.getElementById('joystick1');
-    const handle1 = joystick1.querySelector('.handle');
-    const joystick2 = document.getElementById('joystick2');
-    const handle2 = joystick2.querySelector('.handle');
+    const joystick = document.getElementById('joystick');
+    const handle = joystick.querySelector('.handle');
     
     // 数据元素
     const throttleValue = document.getElementById('throttleValue');
@@ -701,23 +1081,24 @@
     const magZ = document.getElementById('magZ');
     
     // 控制状态
-    let lastSentValue = 0;
-    let lastSentValueSteer = 0;
+    let lastSentThrottle = 0;
+    let lastSentSteering = 0;
     let isMoving = false;
-    let isMovingSteer = false;
     let isHolding = false;
     
-    // 摇杆1(油门) - 全向控制
-    joystick1.addEventListener('touchstart', handleStart);
-    joystick1.addEventListener('touchmove', handleMove);
-    joystick1.addEventListener('touchend', handleEnd);
-    joystick1.addEventListener('mousedown', handleStart);
-    joystick1.addEventListener('mousemove', handleMove);
-    joystick1.addEventListener('mouseup', handleEnd);
-    joystick1.addEventListener('mouseleave', handleEnd);
+    // 遥感控制
+    joystick.addEventListener('touchstart', handleStart);
+    joystick.addEventListener('touchmove', handleMove);
+    joystick.addEventListener('touchend', handleEnd);
+    joystick.addEventListener('mousedown', handleStart);
+    joystick.addEventListener('mousemove', handleMove);
+    joystick.addEventListener('mouseup', handleEnd);
+    joystick.addEventListener('mouseleave', handleEnd);
 
     function handleStart(e) {
+      e.preventDefault();
       isMoving = true;
+      isHolding = true;
       updatePosition(e);
     }
 
@@ -727,20 +1108,30 @@
       updatePosition(e);
     }
 
-    function handleEnd() {
+    function handleEnd(e) {
+      e.preventDefault();
       isMoving = false;
-      handle1.style.top = '50%';
-      handle1.style.left = '50%';
-      handle1.style.transform = 'translate(-50%, -50%)';
-      lastSentValue = 0;
-      lastSentValueSteer = 0;
-      sendControl(0, 0);
+      isHolding = false;
+      
+      // 重置手柄位置
+      handle.style.top = '50%';
+      handle.style.left = '50%';
+      handle.style.transform = 'translate(-50%, -50%)';
+      
+      // 重置控制值
+      lastSentThrottle = 0;
+      lastSentSteering = 0;
+      
+      // 更新显示
       throttleValue.textContent = '0';
       steeringValue.textContent = '0';
+      
+      // 发送停止命令
+      sendControl(0, 0);
     }
 
     function updatePosition(e) {
-      const rect = joystick1.getBoundingClientRect();
+      const rect = joystick.getBoundingClientRect();
       const centerX = rect.width / 2;
       const centerY = rect.height / 2;
       
@@ -762,7 +1153,7 @@
       
       // 计算距离和角度
       const distance = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
-      const maxDistance = rect.width / 2 - 25; // handle宽度的一半
+      const maxDistance = rect.width / 2 - 30; // handle宽度的一半
       
       // 限制在圆形区域内
       const limitedDistance = Math.min(distance, maxDistance);
@@ -773,119 +1164,49 @@
       const newY = centerY + limitedDistance * Math.sin(angle);
       
       // 更新手柄位置
-      handle1.style.left = `${newX}px`;
-      handle1.style.top = `${newY}px`;
-      handle1.style.transform = 'translate(-50%, -50%)';
+      handle.style.left = `${newX}px`;
+      handle.style.top = `${newY}px`;
+      handle.style.transform = 'translate(-50%, -50%)';
       
-      // 计算油门值（上下方向，上 = 负，下 = 正）
       // 归一化为 -100 到 100
+      // 计算油门值（上下方向，上 = 负，下 = 正）- Y轴控制
       const throttle = -Math.sin(angle) * (limitedDistance / maxDistance) * 100;
       
-      // 计算转向值（左右方向，左 = 负，右 = 正）
-      const steering = 0;
+      // 计算转向值（左右方向，左 = 负，右 = 正）- X轴控制
+      const steering = Math.cos(angle) * (limitedDistance / maxDistance) * 100;
       
       // 保存最后的值
-      lastSentValue = throttle;
+      lastSentThrottle = Math.round(throttle);
+      lastSentSteering = Math.round(steering);
       
       // 更新显示
       throttleValue.textContent = Math.round(throttle);
+      steeringValue.textContent = Math.round(steering);
       
       // 发送控制命令
       sendControl(throttle, steering);
     }
     
-    // 摇杆2(转向) - 全向控制
-    joystick2.addEventListener('touchstart', handleStartSteer);
-    joystick2.addEventListener('touchmove', handleMoveSteer);
-    joystick2.addEventListener('touchend', handleEndSteer);
-    joystick2.addEventListener('mousedown', handleStartSteer);
-    joystick2.addEventListener('mousemove', handleMoveSteer);
-    joystick2.addEventListener('mouseup', handleEndSteer);
-    joystick2.addEventListener('mouseleave', handleEndSteer);
-
-    function handleStartSteer(e) {
-      isMovingSteer = true;
-      updatePositionSteer(e);
-    }
-
-    function handleMoveSteer(e) {
-      if (!isMovingSteer) return;
-      e.preventDefault();
-      updatePositionSteer(e);
-    }
-
-    function handleEndSteer() {
-      isMovingSteer = false;
-      handle2.style.top = '50%';
-      handle2.style.left = '50%';
-      handle2.style.transform = 'translate(-50%, -50%)';
-      lastSentValueSteer = 0;
-      sendControl(lastSentValue, 0);
-      steeringValue.textContent = '0';
-    }
-
-    function updatePositionSteer(e) {
-      const rect = joystick2.getBoundingClientRect();
-      const centerX = rect.width / 2;
-      const centerY = rect.height / 2;
-      
-      // 获取触摸/鼠标位置
-      let clientX, clientY;
-      if (e.type.includes('touch')) {
-        clientX = e.touches[0].clientX;
-        clientY = e.touches[0].clientY;
-      } else {
-        clientX = e.clientX;
-        clientY = e.clientY;
-      }
-      
-      // 计算相对于摇杆中心的偏移
-      const x = clientX - rect.left;
-      const y = clientY - rect.top;
-      const offsetX = x - centerX;
-      const offsetY = y - centerY;
-      
-      // 计算距离和角度
-      const distance = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
-      const maxDistance = rect.width / 2 - 25; // handle宽度的一半
-      
-      // 限制在圆形区域内
-      const limitedDistance = Math.min(distance, maxDistance);
-      const angle = Math.atan2(offsetY, offsetX);
-      
-      // 计算新位置
-      const newX = centerX + limitedDistance * Math.cos(angle);
-      const newY = centerY + limitedDistance * Math.sin(angle);
-      
-      // 更新手柄位置
-      handle2.style.left = `${newX}px`;
-      handle2.style.top = `${newY}px`;
-      handle2.style.transform = 'translate(-50%, -50%)';
-      
-      // 计算转向值（左右方向，左 = 负，右 = 正）
-      // 归一化为 -100 到 100
-      const steering = Math.cos(angle) * (limitedDistance / maxDistance) * 100;
-      
-      // 保存最后的值
-      lastSentValueSteer = steering;
-      
-      // 更新显示
-      steeringValue.textContent = Math.round(steering);
-      
-      // 发送控制命令
-      sendControl(lastSentValue, steering);
-    }
-    
     // 发送控制命令
     function sendControl(throttle, steering) {
-      fetch(`/control?c=${Math.round(throttle)},${Math.round(steering)}`, {
-        method: 'GET',
-        cache: 'no-cache',
-      }).catch(error => {
-        console.error('发送控制失败:', error);
-        statusIndicator.classList.remove('connected');
-        isConnected = false;
-      });
+      // Get verbose logging state
+      const verboseLogging = document.getElementById('verboseLogging').checked ? 1 : 0;
+      
+      // Modify URL to include verbose parameter
+      const url = `/control?c=${Math.round(throttle)},${Math.round(steering)}&verbose=${verboseLogging}`;
+      
+      fetch(url)
+        .then(response => response.text())
+        .then(data => {
+          // Update connection status
+          statusIndicator.classList.add('connected');
+          isConnected = true;
+        })
+        .catch(error => {
+          console.error("Error:", error);
+          statusIndicator.classList.remove('connected');
+          isConnected = false;
+        });
     }
     
     // 检查连接状态
@@ -1008,10 +1329,8 @@
           console.log('停止响应:', data);
           throttleValue.textContent = '0';
           steeringValue.textContent = '0';
-          handle1.style.top = '50%';
-          handle1.style.left = '50%';
-          handle2.style.top = '50%';
-          handle2.style.left = '50%';
+          handle.style.top = '50%';
+          handle.style.left = '50%';
         })
         .catch(error => console.error('停止请求失败:', error));
     });
@@ -1029,6 +1348,58 @@
     
     // 页面加载完成后初始化
     window.addEventListener('DOMContentLoaded', init);
+
+    // 添加引脚13 PWM测试功能
+    document.getElementById('setPin13Btn').addEventListener('click', function() {
+      var duty = document.getElementById('pin13Duty').value;
+      fetch('/test_pin13?duty=' + duty)
+        .then(response => response.text())
+        .then(data => {
+          document.getElementById('pin13Result').textContent = data;
+        })
+        .catch(error => {
+          document.getElementById('pin13Result').textContent = '错误: ' + error;
+        });
+    });
+    
+    // 添加引脚12 PWM测试功能
+    document.getElementById('setPin12Btn').addEventListener('click', function() {
+      var duty = document.getElementById('pin12Duty').value;
+      fetch('/test_pin12?duty=' + duty)
+        .then(response => response.text())
+        .then(data => {
+          document.getElementById('pin12Result').textContent = data;
+        })
+        .catch(error => {
+          document.getElementById('pin12Result').textContent = '错误: ' + error;
+        });
+    });
+    
+    // 添加引脚11 PWM测试功能
+    document.getElementById('setPin11Btn').addEventListener('click', function() {
+      var duty = document.getElementById('pin11Duty').value;
+      fetch('/test_pin11?duty=' + duty)
+        .then(response => response.text())
+        .then(data => {
+          document.getElementById('pin11Result').textContent = data;
+        })
+        .catch(error => {
+          document.getElementById('pin11Result').textContent = '错误: ' + error;
+        });
+    });
+    
+    // 添加引脚10 PWM测试功能
+    document.getElementById('setPin10Btn').addEventListener('click', function() {
+      var duty = document.getElementById('pin10Duty').value;
+      fetch('/test_pin10?duty=' + duty)
+        .then(response => response.text())
+        .then(data => {
+          document.getElementById('pin10Result').textContent = data;
+        })
+        .catch(error => {
+          document.getElementById('pin10Result').textContent = '错误: ' + error;
+        });
+    });
   </script>
 </body>
 </html> 

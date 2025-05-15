@@ -36,13 +36,6 @@
 // Tag for logging
 static const char *TAG = "CAR_CONTROL";
 
-// Flag to control logging during remote control
-static bool verbose_logging = true;
-
-// Add helper macros for conditional logging
-#define COND_LOGI(cond, format, ...) do { if (cond) ESP_LOGI(TAG, format, ##__VA_ARGS__); } while(0)
-#define COND_LOGW(cond, format, ...) do { if (cond) ESP_LOGW(TAG, format, ##__VA_ARGS__); } while(0)
-
 // Include web page resources
 extern const uint8_t web_pages_html_start[] asm("_binary_web_pages_html_start");
 extern const uint8_t web_pages_html_end[] asm("_binary_web_pages_html_end");
@@ -137,10 +130,7 @@ static esp_err_t takeoff_handler(httpd_req_t *req);
 static esp_err_t landing_handler(httpd_req_t *req);
 static esp_err_t stop_handler(httpd_req_t *req);
 static esp_err_t test_pwm_handler(httpd_req_t *req);
-static esp_err_t test_pin13_handler(httpd_req_t *req);
-static esp_err_t test_pin12_handler(httpd_req_t *req); // 添加12号引脚测试接口
-static esp_err_t test_pin11_handler(httpd_req_t *req); // 添加11号引脚测试接口
-static esp_err_t test_pin10_handler(httpd_req_t *req); // 添加10号引脚测试接口
+static esp_err_t test_pin13_handler(httpd_req_t *req); // 添加13号引脚测试接口
 
 static const httpd_uri_t root = {
     .uri       = "/control",
@@ -213,30 +203,6 @@ static const httpd_uri_t test_pin13 = {
     .user_ctx  = NULL
 };
 
-// 添加12号引脚测试接口URI
-static const httpd_uri_t test_pin12 = {
-    .uri       = "/test_pin12",
-    .method    = HTTP_GET,
-    .handler   = test_pin12_handler,
-    .user_ctx  = NULL
-};
-
-// 添加11号引脚测试接口URI
-static const httpd_uri_t test_pin11 = {
-    .uri       = "/test_pin11",
-    .method    = HTTP_GET,
-    .handler   = test_pin11_handler,
-    .user_ctx  = NULL
-};
-
-// 添加10号引脚测试接口URI
-static const httpd_uri_t test_pin10 = {
-    .uri       = "/test_pin10",
-    .method    = HTTP_GET,
-    .handler   = test_pin10_handler,
-    .user_ctx  = NULL
-};
-
 // Servo control structure
 typedef struct {
     float freq;
@@ -292,10 +258,7 @@ static void servo_write(ledc_servo_t *servo, float value, float min, float max);
 static void servo_write_speed(ledc_servo_t *servo, float speed);
 static void servo_setup(ledc_servo_t *servo, float freq, int resolution, 
                     ledc_channel_t channel, int gpio_pin, int servo_type) __attribute__((unused));
-static void test_pin13_pwm(void);
-static void test_pin12_pwm(void); // Add test function for pin 12
-static void test_pin11_pwm(void); // Add test function for pin 11
-static void test_pin10_pwm(void); // Add test function for pin 10
+static void test_pin13_pwm(void); // 添加13号引脚测试函数声明
 
 // ESP-IDF中浮点数映射函数
 static float map_float(float x, float in_min, float in_max, float out_min, float out_max) {
@@ -417,24 +380,24 @@ static void wifi_init_softap(void) {
 // 添加WiFi重新连接函数
 static void wifi_reconnect(void) {
     if (wifi_reconnect_attempts >= MAX_WIFI_RECONNECT_ATTEMPTS) {
-        ESP_LOGE(TAG, "Maximum WiFi reconnection attempts reached, system needs restart");
-        esp_restart(); // Last resort: restart system
+        ESP_LOGE(TAG, "WiFi重连尝试次数已达最大值，需要重启系统");
+        esp_restart(); // 最后的方案：重启系统
         return;
     }
     
-    COND_LOGI(verbose_logging, "Attempting to restart WiFi (attempt %d/%d)", 
+    ESP_LOGI(TAG, "尝试重新启动WiFi (尝试 %d/%d)", 
              wifi_reconnect_attempts + 1, MAX_WIFI_RECONNECT_ATTEMPTS);
     
-    // Stop WiFi
+    // 停止WiFi
     esp_wifi_stop();
-    vTaskDelay(pdMS_TO_TICKS(1000)); // Wait 1 second
+    vTaskDelay(pdMS_TO_TICKS(1000)); // 等待1秒
     
-    // Restart WiFi
+    // 重启WiFi
     esp_err_t start_err = esp_wifi_start();
     if (start_err != ESP_OK) {
-        ESP_LOGE(TAG, "WiFi restart failed: %s", esp_err_to_name(start_err));
+        ESP_LOGE(TAG, "WiFi重启失败: %s", esp_err_to_name(start_err));
     } else {
-        COND_LOGI(verbose_logging, "WiFi restarted successfully");
+        ESP_LOGI(TAG, "WiFi重启成功");
     }
     
     wifi_reconnect_attempts++;
@@ -579,10 +542,7 @@ static httpd_handle_t start_webserver(void) {
         httpd_register_uri_handler(server, &landing);
         httpd_register_uri_handler(server, &stop);
         httpd_register_uri_handler(server, &test_pwm);
-        httpd_register_uri_handler(server, &test_pin13);
-        httpd_register_uri_handler(server, &test_pin12); // 注册12号引脚测试接口
-        httpd_register_uri_handler(server, &test_pin11); // 注册11号引脚测试接口
-        httpd_register_uri_handler(server, &test_pin10); // 注册10号引脚测试接口
+        httpd_register_uri_handler(server, &test_pin13); // 确保注册13号引脚测试接口
         return server;
     }
     
@@ -592,49 +552,39 @@ static httpd_handle_t start_webserver(void) {
 
 // 处理控制命令请求
 static esp_err_t root_handler(httpd_req_t *req) {
-    // Get URL parameters
+    // 获取URL参数
     char buf[100];
     char param[32];
     
     int buf_len = httpd_req_get_url_query_len(req) + 1;
     if (buf_len > 1) {
         if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
-            // Check for logging control parameter
-            if (httpd_query_key_value(buf, "verbose", param, sizeof(param)) == ESP_OK) {
-                if (strcmp(param, "0") == 0) {
-                    verbose_logging = false;
-                } else if (strcmp(param, "1") == 0) {
-                    verbose_logging = true;
-                }
-            }
-            
             if (httpd_query_key_value(buf, "c", param, sizeof(param)) == ESP_OK) {
                 float throttle = 0, steering = 0;
                 
-                // Parse throttle and steering values
+                // 解析油门和转向值
                 if (sscanf(param, "%f,%f", &throttle, &steering) == 2) {
-                    // Update control values
+                    // 更新控制值
                     rx_c1 = throttle;
                     rx_c2 = steering;
                     
-                    // Update servos if not in angle control mode
+                    // 不在倾角控制模式时更新舵机
                     if (!angle_control_enabled) {
                         update_servo();
                     }
                     
-                    // Only log if verbose_logging is enabled
-                    COND_LOGI(verbose_logging, "Received control command - Throttle: %.2f, Steering: %.2f", throttle, steering);
+                    ESP_LOGI(TAG, "Received control command - Throttle: %.2f, Steering: %.2f", throttle, steering);
                 }
             }
         }
     }
     
-    // Set response headers
+    // 设置响应头
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
     
-    // Send response
+    // 发送响应
     const char *resp_str = "success";
     httpd_resp_send(req, resp_str, strlen(resp_str));
     
@@ -851,7 +801,7 @@ static void servo_set_scale(ledc_servo_t *servo, float scale) {
     servo->pwm_max = (1.5f + scale * 0.5f) * servo->pwm_base_scale;
 }
 
-// Set servo position
+// 设置舵机位置
 static void servo_write(ledc_servo_t *servo, float value, float min, float max) {
     float new_value = value;
     if (max > min) {
@@ -864,28 +814,28 @@ static void servo_write(ledc_servo_t *servo, float value, float min, float max) 
     
     uint32_t duty = (uint32_t)map_float(new_value, min, max, servo->pwm_min, servo->pwm_max);
     
-    // For main motor, use direct duty cycle mapping to ensure proper ESC driving
+    // 对于主电机，使用直接的占空比映射以确保能够正确驱动电调
     if (servo->gpio_pin == MAIN_MOTOR_PIN) {
-        COND_LOGI(verbose_logging, "Setting main motor PWM duty: %" PRIu32 " (pin: %d)", duty, servo->gpio_pin);
+        ESP_LOGI(TAG, "设置主电机PWM占空比: %" PRIu32 " (引脚: %d)", duty, servo->gpio_pin);
     }
     
-    // Check if duty cycle is within valid range
+    // 检查占空比是否在有效范围内
     uint32_t max_duty = (1 << servo->resolution) - 1;
     if (duty > max_duty) {
-        COND_LOGW(verbose_logging, "Duty cycle out of range, limiting to max: %" PRIu32 " -> %" PRIu32, duty, max_duty);
+        ESP_LOGW(TAG, "占空比超出范围，限制为最大值: %" PRIu32 " -> %" PRIu32, duty, max_duty);
         duty = max_duty;
     }
     
-    // Set LEDC duty cycle directly
+    // 直接设置LEDC占空比
     esp_err_t err = ledc_set_duty(LEDC_MODE, servo->channel, duty);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set PWM duty: %s (pin: %d, channel: %d)", esp_err_to_name(err), servo->gpio_pin, servo->channel);
+        ESP_LOGE(TAG, "设置PWM占空比失败: %s (引脚: %d, 通道: %d)", esp_err_to_name(err), servo->gpio_pin, servo->channel);
     }
     
-    // Update LEDC duty cycle
+    // 更新LEDC占空比
     err = ledc_update_duty(LEDC_MODE, servo->channel);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to update PWM duty: %s (pin: %d, channel: %d)", esp_err_to_name(err), servo->gpio_pin, servo->channel);
+        ESP_LOGE(TAG, "更新PWM占空比失败: %s (引脚: %d, 通道: %d)", esp_err_to_name(err), servo->gpio_pin, servo->channel);
     }
 }
 
@@ -921,54 +871,54 @@ static void servo_write_speed(ledc_servo_t *servo, float speed) {
 
 // 更新舵机位置
 static void update_servo(void) {
-    // Set deadzone value to ±10, reducing deadzone range
+    // 设置死区值为±10，减小死区范围
     const float deadzone = 10.0f;
 
-    // Throttle servo
+    // 油门舵机
     if (fabsf(last_rx_c1 - rx_c1) > deadzone) {
-        // For values beyond the deadzone, perform mapping
+        // 对于超出死区的值，进行映射处理
         float mapped_throttle = rx_c1;
         if (fabsf(rx_c1) <= deadzone) {
-            mapped_throttle = 0; // Values within deadzone set to zero
+            mapped_throttle = 0; // 在死区内的值归零
         } else if (rx_c1 > deadzone) {
-            // Map values greater than deadzone to 0-100 range, apply more direct mapping
+            // 将大于死区的值映射到0-100范围，应用更直接的映射
             mapped_throttle = map_float(rx_c1, deadzone, 100, 10, 100);
         } else {
-            // Map values less than -deadzone to -100-0 range, apply more direct mapping
+            // 将小于-死区的值映射到-100-0范围，应用更直接的映射
             mapped_throttle = map_float(rx_c1, -100, -deadzone, -100, -10);
         }
 
-        // Output debug info
-        COND_LOGI(verbose_logging, "Raw throttle: %.2f, Mapped value: %.2f", rx_c1, mapped_throttle);
+        // 输出调试信息
+        ESP_LOGI(TAG, "原始油门值: %.2f, 映射后的值: %.2f", rx_c1, mapped_throttle);
         
-        // Update power motor and direction servo 1
-        servo_write(&servos[0], mapped_throttle, -100, 100);  // Power motor
-        servo_write(&servos[1], mapped_throttle, -100, 100);  // Direction servo 1
+        // 更新动力电机和方向舵机1
+        servo_write(&servos[0], mapped_throttle, -100, 100);  // 动力电机
+        servo_write(&servos[1], mapped_throttle, -100, 100);  // 方向舵机1
         last_rx_c1 = rx_c1;
         
-        COND_LOGI(verbose_logging, "Throttle updated: %.2f -> %.2f", rx_c1, mapped_throttle);
+        ESP_LOGI(TAG, "Throttle updated: %.2f -> %.2f", rx_c1, mapped_throttle);
     }
 
-    // Steering servo
+    // 转向舵机
     if (fabsf(last_rx_c2 - rx_c2) > deadzone) {
-        // For values beyond the deadzone, perform mapping
+        // 对于超出死区的值，进行映射处理
         float mapped_steering = rx_c2;
         if (fabsf(rx_c2) <= deadzone) {
-            mapped_steering = 0; // Values within deadzone set to zero
+            mapped_steering = 0; // 在死区内的值归零
         } else if (rx_c2 > deadzone) {
-            // Map values greater than deadzone to 0-100 range
+            // 将大于死区的值映射到0-100范围
             mapped_steering = map_float(rx_c2, deadzone, 100, 0, 100);
         } else {
-            // Map values less than -deadzone to -100-0 range
+            // 将小于-死区的值映射到-100-0范围
             mapped_steering = map_float(rx_c2, -100, -deadzone, -100, 0);
         }
 
-        // Update direction servos 2 and 3
-        servo_write(&servos[2], mapped_steering, -100, 100);  // Modify mapping range
-        servo_write(&servos[3], mapped_steering, -100, 100);  // Modify mapping range
+        // 更新方向舵机2和3
+        servo_write(&servos[2], mapped_steering, -100, 100);  // 修改映射范围
+        servo_write(&servos[3], mapped_steering, -100, 100);  // 修改映射范围
         last_rx_c2 = rx_c2;
         
-        COND_LOGI(verbose_logging, "Steering updated: %.2f -> %.2f", rx_c2, mapped_steering);
+        ESP_LOGI(TAG, "Steering updated: %.2f -> %.2f", rx_c2, mapped_steering);
     }
 }
 
@@ -1057,24 +1007,24 @@ static float current_steering = 0;
 
 // 处理角度控制
 static void handle_angle_control(void) {
-    // If angle control is not enabled, return immediately
+    // 如果倾角控制未启用，直接返回
     if (!angle_control_enabled) {
         return;
     }
 
     // Debug output
-    COND_LOGI(verbose_logging, "Angle control active - Roll(X): %.2f Pitch(Y): %.2f Yaw(Z): %.2f",
+    ESP_LOGI(TAG, "Angle control active - Roll(X): %.2f Pitch(Y): %.2f Yaw(Z): %.2f",
             filtered_ax, filtered_ay, filtered_az);
 
-    // Get current Roll and Pitch angles
+    // 获取当前Roll角和Pitch角
     float current_roll = filtered_ax;
     float current_pitch = filtered_ay;
-    bool was_out_of_control = is_out_of_control; // Save previous out of control state
-    is_out_of_control = false; // Reset out of control state, to be determined by logic below
+    bool was_out_of_control = is_out_of_control; // 保存之前的失控状态
+    is_out_of_control = false; // 重置失控状态，由下面的逻辑决定是否设为失控
     
-    // Handle Roll angle (0-90 degrees) to control brushless motor
+    // 处理Roll角度 (0-90度) 控制无刷电机
     if (current_roll >= 0 && current_roll <= 90) {
-        // Roll in normal range, use PID control for brushless motor
+        // Roll in normal range, use PID control brushless motor
         // Map angle to target value
         float target_speed = map_float(current_roll, 0, 90, -50, 100);
         
@@ -1085,21 +1035,21 @@ static void handle_angle_control(void) {
         // Update current actual value for next PID calculation
         current_throttle = rx_c1;
         
-        COND_LOGI(verbose_logging, "Roll in normal range, PID throttle control: %.2f", rx_c1);
+        ESP_LOGI(TAG, "Roll in normal range, PID throttle control: %.2f", rx_c1);
     }
     else {
         // Roll angle out of range, stop motor and mark as out of control
         rx_c1 = 0;
         is_out_of_control = true;
         strcpy(out_of_control_reason, "Roll angle out of range (0-90°)");
-        COND_LOGW(verbose_logging, "Warning: Roll angle out of range, motor stopped");
+        ESP_LOGW(TAG, "Warning: Roll angle out of range, motor stopped");
         
         // Reset PID controller to prevent integral term accumulation
         pid_reset(&throttle_pid);
         current_throttle = 0;
     }
 
-    // Handle Pitch angle (-45 to 45 degrees) to control servo
+    // 处理Pitch角度 (-45到45度) 控制舵机
     if (current_pitch >= -45 && current_pitch <= 45) {
         // Pitch in normal range, control servo
         // Map Pitch angle to servo control range
@@ -1113,7 +1063,7 @@ static void handle_angle_control(void) {
         // Update current actual value
         current_steering = rx_c2;
         
-        COND_LOGI(verbose_logging, "Pitch in normal range, setting servo value: %.2f", rx_c2);
+        ESP_LOGI(TAG, "Pitch in normal range, setting servo value: %.2f", rx_c2);
     }
     else {
         // Pitch angle out of range, center servo and mark as out of control
@@ -1122,7 +1072,7 @@ static void handle_angle_control(void) {
         servo_write_speed(&servos[5], 0);
         is_out_of_control = true;
         strcpy(out_of_control_reason, "Pitch angle out of range (-45° to 45°)");
-        COND_LOGW(verbose_logging, "Warning: Pitch angle out of range, servos centered");
+        ESP_LOGW(TAG, "Warning: Pitch angle out of range, servos centered");
         
         // Reset servo control related variables
         pid_reset(&steering_pid);
@@ -1132,10 +1082,10 @@ static void handle_angle_control(void) {
     // If out of control state changes, output log
     if (is_out_of_control != was_out_of_control) {
         if (is_out_of_control) {
-            COND_LOGW(verbose_logging, "Warning: System out of control! Reason: %s", out_of_control_reason);
+            ESP_LOGW(TAG, "Warning: System out of control! Reason: %s", out_of_control_reason);
         }
         else {
-            COND_LOGI(verbose_logging, "System returned to normal control");
+            ESP_LOGI(TAG, "System returned to normal control");
         }
     }
 
@@ -1171,11 +1121,6 @@ void app_main(void)
     
     // 测试直接控制13号引脚
     test_pin13_pwm();
-    
-    // 测试方向舵机引脚
-    test_pin12_pwm();
-    test_pin11_pwm();
-    test_pin10_pwm();
     
     // Initialize PID controllers
     pid_init(&throttle_pid, 4.0f, 0.2f, 0.1f, -100.0f, 100.0f);  // Throttle PID
@@ -1246,73 +1191,6 @@ static void pid_reset(pid_controller_t *pid) {
     pid->last_time = 0;
 }
 
-// 添加直接测试13号引脚的函数，方便调试
-static void test_pin13_pwm(void) {
-    // 13号引脚的LEDC配置
-    ESP_LOGI(TAG, "开始测试13号引脚PWM输出");
-    
-    // 配置13号引脚为输出模式
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << 13),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&io_conf);
-    
-    // 设置LEDC参数
-    ledc_timer_config_t ledc_timer = {
-        .duty_resolution = LEDC_TIMER_13_BIT,
-        .freq_hz = 50,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .timer_num = LEDC_TIMER_1, // 使用不同的定时器
-        .clk_cfg = LEDC_AUTO_CLK,
-    };
-    
-    esp_err_t err = ledc_timer_config(&ledc_timer);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "配置LEDC定时器失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    // 配置LEDC通道
-    ledc_channel_config_t ledc_channel = {
-        .gpio_num = 13,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .channel = LEDC_CHANNEL_7, // 使用未被使用的通道
-        .intr_type = LEDC_INTR_DISABLE,
-        .timer_sel = LEDC_TIMER_1,
-        .duty = 0,
-        .hpoint = 0,
-    };
-    
-    err = ledc_channel_config(&ledc_channel);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "配置LEDC通道失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    // 测试不同占空比的PWM输出
-    ESP_LOGI(TAG, "设置13号引脚PWM占空比为50%%");
-    uint32_t duty_value = (1 << LEDC_TIMER_13_BIT) / 2; // 50%占空比
-    
-    err = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_7, duty_value);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "设置PWM占空比失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    err = ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_7);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "更新PWM占空比失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    // 测试完成
-    ESP_LOGI(TAG, "13号引脚PWM测试完成，当前占空比: %" PRIu32, duty_value);
-}
-
 static esp_err_t servo_setup_with_error_check(ledc_servo_t *servo, float freq, int resolution, 
                     ledc_channel_t channel, int gpio_pin, int servo_type) {
     servo->freq = freq;
@@ -1368,89 +1246,89 @@ static void servo_setup(ledc_servo_t *servo, float freq, int resolution,
 
 // 修改control_task添加WiFi监控逻辑
 static void control_task(void *pvParameters) {
-    COND_LOGI(verbose_logging, "Control task started");
+    ESP_LOGI(TAG, "控制任务启动");
     
-    // Last time to check servos - unused but kept for future expansion
+    // 上次检查舵机的时间 - 未使用但保留以备将来扩展
     int64_t last_servo_check_time __attribute__((unused)) = esp_timer_get_time();
     int64_t last_landing_update_time = esp_timer_get_time();
     last_wifi_check_time = esp_timer_get_time();
     
     while (1) {
-        // If angle control is enabled, handle angle control
+        // 如果开启了倾角控制，处理倾角控制
         if (angle_control_enabled) {
             handle_angle_control();
         }
         
-        // Handle deceleration operation during landing
+        // 处理降落时的减速操作
         if (is_landing) {
             int64_t now = esp_timer_get_time();
-            if (now - last_landing_update_time > 50000) { // 50ms = 50000 microseconds
-                // If throttle value is greater than -100, gradually reduce the value (deceleration)
+            if (now - last_landing_update_time > 50000) { // 50ms = 50000微秒
+                // 如果油门值大于-100，逐渐减小值（减速）
                 if (rx_c1 > -100) {
-                    rx_c1 -= 5; // Decrease by 5 each time
+                    rx_c1 -= 5; // 每次减少5
                     if (rx_c1 < -100) rx_c1 = -100;
                     
-                    // Update servos
+                    // 更新舵机
                     update_servo();
                     last_landing_update_time = now;
                     
-                    COND_LOGI(verbose_logging, "Landing deceleration: %.2f", rx_c1);
+                    ESP_LOGI(TAG, "Landing deceleration: %.2f", rx_c1);
                 } else {
                     // Reached stop state, turn off landing mode
                     is_landing = false;
-                    COND_LOGI(verbose_logging, "Landing completed");
+                    ESP_LOGI(TAG, "Landing completed");
                 }
             }
         }
         
-        // Periodically check A0090 servo status to prevent random movement
+        // 定期检查A0090舵机状态，防止随机转动
         int64_t now = esp_timer_get_time();
         
-        // Add WiFi monitoring and reconnection logic
+        // 添加WiFi监控和重连逻辑
         if (now - last_wifi_check_time > WIFI_RECONNECT_INTERVAL) {
             last_wifi_check_time = now;
             
-            // Check WiFi status
+            // 检查WiFi状态
             wifi_sta_list_t sta_list;
             
-            // Check the number of connections in AP mode
+            // 检查AP模式下的连接数量
             esp_err_t err = esp_wifi_ap_get_sta_list(&sta_list);
             if (err != ESP_OK) {
-                COND_LOGW(verbose_logging, "Cannot get list of connected stations: %s", esp_err_to_name(err));
+                ESP_LOGW(TAG, "无法获取连接的站点列表: %s", esp_err_to_name(err));
                 wifi_needs_reconnect = true;
             } else {
-                COND_LOGI(verbose_logging, "Current number of connected devices: %d", sta_list.num);
+                ESP_LOGI(TAG, "当前连接的设备数: %d", sta_list.num);
                 if (wifi_reconnect_attempts > 0 && sta_list.num > 0) {
-                    // If there were previous issues but connections restored, reset attempt counter
+                    // 如果之前有问题但现在连接恢复，重置尝试次数
                     wifi_reconnect_attempts = 0;
-                    COND_LOGI(verbose_logging, "WiFi connection restored to normal");
+                    ESP_LOGI(TAG, "WiFi连接恢复正常");
                 }
             }
             
-            // If WiFi needs to be reconnected
+            // 如果需要重连WiFi
             if (wifi_needs_reconnect) {
                 wifi_reconnect();
             }
         }
         
-        // Control LED to indicate system status
+        // 控制LED以指示系统状态
         static bool led_state = false;
         static int blink_counter = 0;
         
         blink_counter++;
-        if (blink_counter >= 50) { // About 1 second to flip
+        if (blink_counter >= 50) { // 约1秒钟翻转一次
             led_state = !led_state;
             gpio_set_level(LED_PIN, led_state);
             blink_counter = 0;
             
-            // Check connection status
+            // 检查连接状态
             if (is_out_of_control) {
-                COND_LOGW(verbose_logging, "System out of control: %s", out_of_control_reason);
+                ESP_LOGW(TAG, "System out of control: %s", out_of_control_reason);
             }
         }
         
-        // Prevent task from consuming too much CPU
-        vTaskDelay(pdMS_TO_TICKS(20)); // Check every 20ms
+        // 防止任务过度消耗CPU
+        vTaskDelay(pdMS_TO_TICKS(20)); // 20毫秒检查一次
     }
 }
 
@@ -1534,7 +1412,72 @@ static esp_err_t test_pwm_handler(httpd_req_t *req) {
     return ESP_FAIL;
 }
 
-
+// 添加直接测试13号引脚的函数，方便调试
+static void test_pin13_pwm(void) {
+    // 13号引脚的LEDC配置
+    ESP_LOGI(TAG, "开始测试13号引脚PWM输出");
+    
+    // 配置13号引脚为输出模式
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << 13),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io_conf);
+    
+    // 设置LEDC参数
+    ledc_timer_config_t ledc_timer = {
+        .duty_resolution = LEDC_TIMER_13_BIT,
+        .freq_hz = 50,
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .timer_num = LEDC_TIMER_1, // 使用不同的定时器
+        .clk_cfg = LEDC_AUTO_CLK,
+    };
+    
+    esp_err_t err = ledc_timer_config(&ledc_timer);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "配置LEDC定时器失败: %s", esp_err_to_name(err));
+        return;
+    }
+    
+    // 配置LEDC通道
+    ledc_channel_config_t ledc_channel = {
+        .gpio_num = 13,
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .channel = LEDC_CHANNEL_7, // 使用未被使用的通道
+        .intr_type = LEDC_INTR_DISABLE,
+        .timer_sel = LEDC_TIMER_1,
+        .duty = 0,
+        .hpoint = 0,
+    };
+    
+    err = ledc_channel_config(&ledc_channel);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "配置LEDC通道失败: %s", esp_err_to_name(err));
+        return;
+    }
+    
+    // 测试不同占空比的PWM输出
+    ESP_LOGI(TAG, "设置13号引脚PWM占空比为50%%");
+    uint32_t duty_value = (1 << LEDC_TIMER_13_BIT) / 2; // 50%占空比
+    
+    err = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_7, duty_value);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "设置PWM占空比失败: %s", esp_err_to_name(err));
+        return;
+    }
+    
+    err = ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_7);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "更新PWM占空比失败: %s", esp_err_to_name(err));
+        return;
+    }
+    
+    // 测试完成
+    ESP_LOGI(TAG, "13号引脚PWM测试完成，当前占空比: %" PRIu32, duty_value);
+}
 
 // 添加13号引脚测试接口实现
 static esp_err_t test_pin13_handler(httpd_req_t *req) {
@@ -1632,501 +1575,5 @@ static esp_err_t test_pin13_handler(httpd_req_t *req) {
     
     // 如果参数无效，返回错误
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "缺少有效参数，格式: /test_pin13?duty=4096");
-    return ESP_FAIL;
-} 
-
-// Add test functions for pins 12, 11, and 10
-static void test_pin12_pwm(void) {
-    // 12号引脚的LEDC配置
-    ESP_LOGI(TAG, "开始测试12号引脚PWM输出");
-    
-    // 配置12号引脚为输出模式
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << 12),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&io_conf);
-    
-    // 设置LEDC参数
-    ledc_timer_config_t ledc_timer = {
-        .duty_resolution = LEDC_TIMER_13_BIT,
-        .freq_hz = 50,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .timer_num = LEDC_TIMER_1, // 使用不同的定时器
-        .clk_cfg = LEDC_AUTO_CLK,
-    };
-    
-    esp_err_t err = ledc_timer_config(&ledc_timer);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "配置LEDC定时器失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    // 配置LEDC通道
-    ledc_channel_config_t ledc_channel = {
-        .gpio_num = 12,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .channel = LEDC_CHANNEL_6, // 使用未被使用的通道
-        .intr_type = LEDC_INTR_DISABLE,
-        .timer_sel = LEDC_TIMER_1,
-        .duty = 0,
-        .hpoint = 0,
-    };
-    
-    err = ledc_channel_config(&ledc_channel);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "配置LEDC通道失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    // 测试不同占空比的PWM输出
-    ESP_LOGI(TAG, "设置12号引脚PWM占空比为50%%");
-    uint32_t duty_value = (1 << LEDC_TIMER_13_BIT) / 2; // 50%占空比
-    
-    err = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_6, duty_value);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "设置PWM占空比失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    err = ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_6);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "更新PWM占空比失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    // 测试完成
-    ESP_LOGI(TAG, "12号引脚PWM测试完成，当前占空比: %" PRIu32, duty_value);
-}
-
-static void test_pin11_pwm(void) {
-    // 11号引脚的LEDC配置
-    ESP_LOGI(TAG, "开始测试11号引脚PWM输出");
-    
-    // 配置11号引脚为输出模式
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << 11),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&io_conf);
-    
-    // 设置LEDC参数
-    ledc_timer_config_t ledc_timer = {
-        .duty_resolution = LEDC_TIMER_13_BIT,
-        .freq_hz = 50,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .timer_num = LEDC_TIMER_1, // 使用不同的定时器
-        .clk_cfg = LEDC_AUTO_CLK,
-    };
-    
-    esp_err_t err = ledc_timer_config(&ledc_timer);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "配置LEDC定时器失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    // 配置LEDC通道
-    ledc_channel_config_t ledc_channel = {
-        .gpio_num = 11,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .channel = LEDC_CHANNEL_5, // 使用未被使用的通道
-        .intr_type = LEDC_INTR_DISABLE,
-        .timer_sel = LEDC_TIMER_1,
-        .duty = 0,
-        .hpoint = 0,
-    };
-    
-    err = ledc_channel_config(&ledc_channel);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "配置LEDC通道失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    // 测试不同占空比的PWM输出
-    ESP_LOGI(TAG, "设置11号引脚PWM占空比为50%%");
-    uint32_t duty_value = (1 << LEDC_TIMER_13_BIT) / 2; // 50%占空比
-    
-    err = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_5, duty_value);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "设置PWM占空比失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    err = ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_5);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "更新PWM占空比失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    // 测试完成
-    ESP_LOGI(TAG, "11号引脚PWM测试完成，当前占空比: %" PRIu32, duty_value);
-}
-
-static void test_pin10_pwm(void) {
-    // 10号引脚的LEDC配置
-    ESP_LOGI(TAG, "开始测试10号引脚PWM输出");
-    
-    // 配置10号引脚为输出模式
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << 10),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&io_conf);
-    
-    // 设置LEDC参数
-    ledc_timer_config_t ledc_timer = {
-        .duty_resolution = LEDC_TIMER_13_BIT,
-        .freq_hz = 50,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .timer_num = LEDC_TIMER_1, // 使用不同的定时器
-        .clk_cfg = LEDC_AUTO_CLK,
-    };
-    
-    esp_err_t err = ledc_timer_config(&ledc_timer);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "配置LEDC定时器失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    // 配置LEDC通道
-    ledc_channel_config_t ledc_channel = {
-        .gpio_num = 10,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .channel = LEDC_CHANNEL_4, // 使用未被使用的通道
-        .intr_type = LEDC_INTR_DISABLE,
-        .timer_sel = LEDC_TIMER_1,
-        .duty = 0,
-        .hpoint = 0,
-    };
-    
-    err = ledc_channel_config(&ledc_channel);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "配置LEDC通道失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    // 测试不同占空比的PWM输出
-    ESP_LOGI(TAG, "设置10号引脚PWM占空比为50%%");
-    uint32_t duty_value = (1 << LEDC_TIMER_13_BIT) / 2; // 50%占空比
-    
-    err = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4, duty_value);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "设置PWM占空比失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    err = ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "更新PWM占空比失败: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    // 测试完成
-    ESP_LOGI(TAG, "10号引脚PWM测试完成，当前占空比: %" PRIu32, duty_value);
-} 
-
-// 添加12号引脚测试接口实现
-static esp_err_t test_pin12_handler(httpd_req_t *req) {
-    char buf[100];
-    char param[32];
-    int duty = -1;
-    
-    ESP_LOGI(TAG, "收到12号引脚测试请求");
-    
-    // 解析URL参数
-    int buf_len = httpd_req_get_url_query_len(req) + 1;
-    if (buf_len > 1) {
-        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
-            // 获取占空比参数
-            if (httpd_query_key_value(buf, "duty", param, sizeof(param)) == ESP_OK) {
-                duty = atoi(param);
-            }
-            
-            // 如果参数有效，直接设置PWM
-            if (duty >= 0) {
-                ESP_LOGI(TAG, "设置12号引脚的PWM占空比为 %d", duty);
-                
-                // 配置12号引脚为输出模式
-                gpio_config_t io_conf = {
-                    .pin_bit_mask = (1ULL << 12),
-                    .mode = GPIO_MODE_OUTPUT,
-                    .pull_up_en = GPIO_PULLUP_DISABLE,
-                    .pull_down_en = GPIO_PULLDOWN_DISABLE,
-                    .intr_type = GPIO_INTR_DISABLE,
-                };
-                gpio_config(&io_conf);
-                
-                // 设置LEDC参数
-                ledc_timer_config_t ledc_timer = {
-                    .duty_resolution = LEDC_TIMER_13_BIT,
-                    .freq_hz = 50,
-                    .speed_mode = LEDC_LOW_SPEED_MODE,
-                    .timer_num = LEDC_TIMER_1,
-                    .clk_cfg = LEDC_AUTO_CLK,
-                };
-                
-                esp_err_t err = ledc_timer_config(&ledc_timer);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "配置LEDC定时器失败: %s", esp_err_to_name(err));
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "配置LEDC定时器失败");
-                    return ESP_FAIL;
-                }
-                
-                // 配置LEDC通道
-                ledc_channel_config_t ledc_channel = {
-                    .gpio_num = 12,
-                    .speed_mode = LEDC_LOW_SPEED_MODE,
-                    .channel = LEDC_CHANNEL_6,
-                    .intr_type = LEDC_INTR_DISABLE,
-                    .timer_sel = LEDC_TIMER_1,
-                    .duty = 0,
-                    .hpoint = 0,
-                };
-                
-                err = ledc_channel_config(&ledc_channel);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "配置LEDC通道失败: %s", esp_err_to_name(err));
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "配置LEDC通道失败");
-                    return ESP_FAIL;
-                }
-                
-                // 限制占空比范围
-                uint32_t max_duty = (1 << LEDC_TIMER_13_BIT) - 1;
-                if (duty > max_duty) duty = max_duty;
-                
-                // 设置PWM占空比
-                err = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_6, duty);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "设置PWM占空比失败: %s", esp_err_to_name(err));
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "设置PWM占空比失败");
-                    return ESP_FAIL;
-                }
-                
-                // 更新PWM占空比
-                err = ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_6);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "更新PWM占空比失败: %s", esp_err_to_name(err));
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "更新PWM占空比失败");
-                    return ESP_FAIL;
-                }
-                
-                // 发送成功响应
-                char resp[100];
-                snprintf(resp, sizeof(resp), "成功设置12号引脚的PWM占空比为 %" PRIu32, (uint32_t)duty);
-                httpd_resp_send(req, resp, strlen(resp));
-                return ESP_OK;
-            }
-        }
-    }
-    
-    // 如果参数无效，返回错误
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "缺少有效参数，格式: /test_pin12?duty=4096");
-    return ESP_FAIL;
-}
-
-// 添加11号引脚测试接口实现
-static esp_err_t test_pin11_handler(httpd_req_t *req) {
-    char buf[100];
-    char param[32];
-    int duty = -1;
-    
-    ESP_LOGI(TAG, "收到11号引脚测试请求");
-    
-    // 解析URL参数
-    int buf_len = httpd_req_get_url_query_len(req) + 1;
-    if (buf_len > 1) {
-        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
-            // 获取占空比参数
-            if (httpd_query_key_value(buf, "duty", param, sizeof(param)) == ESP_OK) {
-                duty = atoi(param);
-            }
-            
-            // 如果参数有效，直接设置PWM
-            if (duty >= 0) {
-                ESP_LOGI(TAG, "设置11号引脚的PWM占空比为 %d", duty);
-                
-                // 配置11号引脚为输出模式
-                gpio_config_t io_conf = {
-                    .pin_bit_mask = (1ULL << 11),
-                    .mode = GPIO_MODE_OUTPUT,
-                    .pull_up_en = GPIO_PULLUP_DISABLE,
-                    .pull_down_en = GPIO_PULLDOWN_DISABLE,
-                    .intr_type = GPIO_INTR_DISABLE,
-                };
-                gpio_config(&io_conf);
-                
-                // 设置LEDC参数
-                ledc_timer_config_t ledc_timer = {
-                    .duty_resolution = LEDC_TIMER_13_BIT,
-                    .freq_hz = 50,
-                    .speed_mode = LEDC_LOW_SPEED_MODE,
-                    .timer_num = LEDC_TIMER_1,
-                    .clk_cfg = LEDC_AUTO_CLK,
-                };
-                
-                esp_err_t err = ledc_timer_config(&ledc_timer);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "配置LEDC定时器失败: %s", esp_err_to_name(err));
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "配置LEDC定时器失败");
-                    return ESP_FAIL;
-                }
-                
-                // 配置LEDC通道
-                ledc_channel_config_t ledc_channel = {
-                    .gpio_num = 11,
-                    .speed_mode = LEDC_LOW_SPEED_MODE,
-                    .channel = LEDC_CHANNEL_5,
-                    .intr_type = LEDC_INTR_DISABLE,
-                    .timer_sel = LEDC_TIMER_1,
-                    .duty = 0,
-                    .hpoint = 0,
-                };
-                
-                err = ledc_channel_config(&ledc_channel);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "配置LEDC通道失败: %s", esp_err_to_name(err));
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "配置LEDC通道失败");
-                    return ESP_FAIL;
-                }
-                
-                // 限制占空比范围
-                uint32_t max_duty = (1 << LEDC_TIMER_13_BIT) - 1;
-                if (duty > max_duty) duty = max_duty;
-                
-                // 设置PWM占空比
-                err = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_5, duty);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "设置PWM占空比失败: %s", esp_err_to_name(err));
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "设置PWM占空比失败");
-                    return ESP_FAIL;
-                }
-                
-                // 更新PWM占空比
-                err = ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_5);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "更新PWM占空比失败: %s", esp_err_to_name(err));
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "更新PWM占空比失败");
-                    return ESP_FAIL;
-                }
-                
-                // 发送成功响应
-                char resp[100];
-                snprintf(resp, sizeof(resp), "成功设置11号引脚的PWM占空比为 %" PRIu32, (uint32_t)duty);
-                httpd_resp_send(req, resp, strlen(resp));
-                return ESP_OK;
-            }
-        }
-    }
-    
-    // 如果参数无效，返回错误
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "缺少有效参数，格式: /test_pin11?duty=4096");
-    return ESP_FAIL;
-}
-
-// 添加10号引脚测试接口实现
-static esp_err_t test_pin10_handler(httpd_req_t *req) {
-    char buf[100];
-    char param[32];
-    int duty = -1;
-    
-    ESP_LOGI(TAG, "收到10号引脚测试请求");
-    
-    // 解析URL参数
-    int buf_len = httpd_req_get_url_query_len(req) + 1;
-    if (buf_len > 1) {
-        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
-            // 获取占空比参数
-            if (httpd_query_key_value(buf, "duty", param, sizeof(param)) == ESP_OK) {
-                duty = atoi(param);
-            }
-            
-            // 如果参数有效，直接设置PWM
-            if (duty >= 0) {
-                ESP_LOGI(TAG, "设置10号引脚的PWM占空比为 %d", duty);
-                
-                // 配置10号引脚为输出模式
-                gpio_config_t io_conf = {
-                    .pin_bit_mask = (1ULL << 10),
-                    .mode = GPIO_MODE_OUTPUT,
-                    .pull_up_en = GPIO_PULLUP_DISABLE,
-                    .pull_down_en = GPIO_PULLDOWN_DISABLE,
-                    .intr_type = GPIO_INTR_DISABLE,
-                };
-                gpio_config(&io_conf);
-                
-                // 设置LEDC参数
-                ledc_timer_config_t ledc_timer = {
-                    .duty_resolution = LEDC_TIMER_13_BIT,
-                    .freq_hz = 50,
-                    .speed_mode = LEDC_LOW_SPEED_MODE,
-                    .timer_num = LEDC_TIMER_1,
-                    .clk_cfg = LEDC_AUTO_CLK,
-                };
-                
-                esp_err_t err = ledc_timer_config(&ledc_timer);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "配置LEDC定时器失败: %s", esp_err_to_name(err));
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "配置LEDC定时器失败");
-                    return ESP_FAIL;
-                }
-                
-                // 配置LEDC通道
-                ledc_channel_config_t ledc_channel = {
-                    .gpio_num = 10,
-                    .speed_mode = LEDC_LOW_SPEED_MODE,
-                    .channel = LEDC_CHANNEL_4,
-                    .intr_type = LEDC_INTR_DISABLE,
-                    .timer_sel = LEDC_TIMER_1,
-                    .duty = 0,
-                    .hpoint = 0,
-                };
-                
-                err = ledc_channel_config(&ledc_channel);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "配置LEDC通道失败: %s", esp_err_to_name(err));
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "配置LEDC通道失败");
-                    return ESP_FAIL;
-                }
-                
-                // 限制占空比范围
-                uint32_t max_duty = (1 << LEDC_TIMER_13_BIT) - 1;
-                if (duty > max_duty) duty = max_duty;
-                
-                // 设置PWM占空比
-                err = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4, duty);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "设置PWM占空比失败: %s", esp_err_to_name(err));
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "设置PWM占空比失败");
-                    return ESP_FAIL;
-                }
-                
-                // 更新PWM占空比
-                err = ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "更新PWM占空比失败: %s", esp_err_to_name(err));
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "更新PWM占空比失败");
-                    return ESP_FAIL;
-                }
-                
-                // 发送成功响应
-                char resp[100];
-                snprintf(resp, sizeof(resp), "成功设置10号引脚的PWM占空比为 %" PRIu32, (uint32_t)duty);
-                httpd_resp_send(req, resp, strlen(resp));
-                return ESP_OK;
-            }
-        }
-    }
-    
-    // 如果参数无效，返回错误
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "缺少有效参数，格式: /test_pin10?duty=4096");
     return ESP_FAIL;
 } 
