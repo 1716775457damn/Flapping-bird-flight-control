@@ -1,0 +1,51 @@
+-- Found Git: D:/Espressif/tools/idf-git/2.43.0/cmd/git.exe (found version "2.43.0.windows.1") 
+-- ccache will be used for faster recompilation
+-- The C compiler identification is GNU 12.2.0
+-- The CXX compiler identification is GNU 12.2.0
+-- The ASM compiler identification is GNU
+-- Found assembler: D:/Espressif/tools/xtensa-esp32-elf/esp-12.2.0_20230208/xtensa-esp32-elf/bin/xtensa-esp32-elf-gcc.exe
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: D:/Espressif/tools/xtensa-esp32-elf/esp-12.2.0_20230208/xtensa-esp32-elf/bin/xtensa-esp32-elf-gcc.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: D:/Espressif/tools/xtensa-esp32-elf/esp-12.2.0_20230208/xtensa-esp32-elf/bin/xtensa-esp32-elf-g++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- git rev-parse returned 'fatal: not a git repository (or any of the parent directories): .git'
+-- Could not use 'git describe' to determine PROJECT_VER.
+-- Building ESP-IDF components for target esp32
+Dependencies lock doesn't exist, solving dependencies.
+....Updating lock file at E:\code\esp32\idf\blink\dependencies.lock
+Processing 2 dependencies:
+[1/2] espressif/led_strip (2.5.5)
+[2/2] idf (5.1.2)
+-- Project sdkconfig file E:/code/esp32/idf/blink/sdkconfig
+-- Looking for sys/types.h
+-- Looking for sys/types.h - found
+-- Looking for stdint.h
+-- Looking for stdint.h - found
+-- Looking for stddef.h
+-- Looking for stddef.h - found
+-- Check size of time_t
+-- Check size of time_t - done
+-- Found Python3: D:/Espressif/python_env/idf5.1_py3.11_env/Scripts/python.exe (found version "3.11.2") found components: Interpreter 
+-- Performing Test C_COMPILER_SUPPORTS_WFORMAT_SIGNEDNESS
+-- Performing Test C_COMPILER_SUPPORTS_WFORMAT_SIGNEDNESS - Success
+-- App "blink" version: 1
+-- Adding linker script E:/code/esp32/idf/blink/build/esp-idf/esp_system/ld/memory.ld
+-- Adding linker script D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_system/ld/esp32/sections.ld.in
+-- Adding linker script D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_rom/esp32/ld/esp32.rom.ld
+-- Adding linker script D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_rom/esp32/ld/esp32.rom.api.ld
+-- Adding linker script D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_rom/esp32/ld/esp32.rom.libgcc.ld
+-- Adding linker script D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_rom/esp32/ld/esp32.rom.newlib-data.ld
+-- Adding linker script D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_rom/esp32/ld/esp32.rom.syscalls.ld
+-- Adding linker script D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_rom/esp32/ld/esp32.rom.newlib-funcs.ld
+-- Adding linker script D:/Espressif/frameworks/esp-idf-v5.1.2/components/soc/esp32/ld/esp32.peripherals.ld
+-- Components: app_trace app_update bootloader bootloader_support bt cmock console cxx driver efuse esp-tls esp_adc esp_app_format esp_coex esp_common esp_eth esp_event esp_gdbstub esp_hid esp_http_client esp_http_server esp_https_ota esp_https_server esp_hw_support esp_lcd esp_local_ctrl esp_mm esp_netif esp_netif_stack esp_partition esp_phy esp_pm esp_psram esp_ringbuf esp_rom esp_system esp_timer esp_wifi espcoredump espressif__led_strip esptool_py fatfs freertos hal heap http_parser idf_test ieee802154 json log lwip main mbedtls mqtt newlib nvs_flash openthread partition_table perfmon protobuf-c protocomm pthread sdmmc soc spi_flash spiffs tcp_transport ulp unity usb vfs wear_levelling wifi_provisioning wpa_supplicant xtensa
+-- Component paths: D:/Espressif/frameworks/esp-idf-v5.1.2/components/app_trace D:/Espressif/frameworks/esp-idf-v5.1.2/components/app_update D:/Espressif/frameworks/esp-idf-v5.1.2/components/bootloader D:/Espressif/frameworks/esp-idf-v5.1.2/components/bootloader_support D:/Espressif/frameworks/esp-idf-v5.1.2/components/bt D:/Espressif/frameworks/esp-idf-v5.1.2/components/cmock D:/Espressif/frameworks/esp-idf-v5.1.2/components/console D:/Espressif/frameworks/esp-idf-v5.1.2/components/cxx D:/Espressif/frameworks/esp-idf-v5.1.2/components/driver D:/Espressif/frameworks/esp-idf-v5.1.2/components/efuse D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp-tls D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_adc D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_app_format D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_coex D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_common D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_eth D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_event D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_gdbstub D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_hid D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_http_client D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_http_server D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_https_ota D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_https_server D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_hw_support D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_lcd D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_local_ctrl D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_mm D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_netif D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_netif_stack D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_partition D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_phy D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_pm D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_psram D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_ringbuf D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_rom D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_system D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_timer D:/Espressif/frameworks/esp-idf-v5.1.2/components/esp_wifi D:/Espressif/frameworks/esp-idf-v5.1.2/components/espcoredump E:/code/esp32/idf/blink/managed_components/espressif__led_strip D:/Espressif/frameworks/esp-idf-v5.1.2/components/esptool_py D:/Espressif/frameworks/esp-idf-v5.1.2/components/fatfs D:/Espressif/frameworks/esp-idf-v5.1.2/components/freertos D:/Espressif/frameworks/esp-idf-v5.1.2/components/hal D:/Espressif/frameworks/esp-idf-v5.1.2/components/heap D:/Espressif/frameworks/esp-idf-v5.1.2/components/http_parser D:/Espressif/frameworks/esp-idf-v5.1.2/components/idf_test D:/Espressif/frameworks/esp-idf-v5.1.2/components/ieee802154 D:/Espressif/frameworks/esp-idf-v5.1.2/components/json D:/Espressif/frameworks/esp-idf-v5.1.2/components/log D:/Espressif/frameworks/esp-idf-v5.1.2/components/lwip E:/code/esp32/idf/blink/main D:/Espressif/frameworks/esp-idf-v5.1.2/components/mbedtls D:/Espressif/frameworks/esp-idf-v5.1.2/components/mqtt D:/Espressif/frameworks/esp-idf-v5.1.2/components/newlib D:/Espressif/frameworks/esp-idf-v5.1.2/components/nvs_flash D:/Espressif/frameworks/esp-idf-v5.1.2/components/openthread D:/Espressif/frameworks/esp-idf-v5.1.2/components/partition_table D:/Espressif/frameworks/esp-idf-v5.1.2/components/perfmon D:/Espressif/frameworks/esp-idf-v5.1.2/components/protobuf-c D:/Espressif/frameworks/esp-idf-v5.1.2/components/protocomm D:/Espressif/frameworks/esp-idf-v5.1.2/components/pthread D:/Espressif/frameworks/esp-idf-v5.1.2/components/sdmmc D:/Espressif/frameworks/esp-idf-v5.1.2/components/soc D:/Espressif/frameworks/esp-idf-v5.1.2/components/spi_flash D:/Espressif/frameworks/esp-idf-v5.1.2/components/spiffs D:/Espressif/frameworks/esp-idf-v5.1.2/components/tcp_transport D:/Espressif/frameworks/esp-idf-v5.1.2/components/ulp D:/Espressif/frameworks/esp-idf-v5.1.2/components/unity D:/Espressif/frameworks/esp-idf-v5.1.2/components/usb D:/Espressif/frameworks/esp-idf-v5.1.2/components/vfs D:/Espressif/frameworks/esp-idf-v5.1.2/components/wear_levelling D:/Espressif/frameworks/esp-idf-v5.1.2/components/wifi_provisioning D:/Espressif/frameworks/esp-idf-v5.1.2/components/wpa_supplicant D:/Espressif/frameworks/esp-idf-v5.1.2/components/xtensa
+-- Configuring done
+-- Generating done
+-- Build files have been written to: E:/code/esp32/idf/blink/build
